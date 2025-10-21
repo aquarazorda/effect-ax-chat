@@ -1,0 +1,18 @@
+{
+  "name": "effect-ax",
+  "module": "index.ts",
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/bun": "latest"
+  },
+  "peerDependencies": {
+    "typescript": "^5.9.3"
+  },
+  "dependencies": {
+    "@ax-llm/ax": "latest",
+    "effect": "latest"
+  }
+}
