@@ -27,4 +27,3 @@ export const organization = auth(
     uniqueIndex("organization_clerk_org_id_key").on(t.clerk_org_id),
   ],
 );
-

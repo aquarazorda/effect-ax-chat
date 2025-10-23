@@ -23,6 +23,15 @@ Reference proposal: docs/proposals/database-rewrite-drizzle.md
 - Single Builder DB: schemas `auth`, `builder`, `billing_tracking`, `marketing`, plus `public.kysely_*`.
 - Many Organization DBs (customer data): resolved per organization; created/managed externally. Our app reads/writes via Drizzle, and only performs DDL when explicitly invoked.
 
+## Conventions
+
+- Brand all identifier columns with Effect Schema and Drizzle `$type`:
+  - Define branded ID schemas in `src/db/ids.ts` (e.g., `ActionIdSchema`, `EntityTypeIdSchema`).
+  - Use `$type<BrandedId>()` on Drizzle columns (e.g., `varchar('action_id').$type<ActionId>()`).
+  - Prefer specific per-entity brands (e.g., `ActionVersionId`, `RelationVersionId`, `WorkspaceVersionId`) over generic `string`.
+  - Apply to primary keys and all `*_id`/`*_version_id` fields across builder tables.
+  - Reuse these branded types in repositories and service signatures for end-to-end type safety.
+
 ## Workstream A — Project Setup
 
 - [ ] Add dependencies: `drizzle-orm`, `drizzle-kit`, `@effect/schema`, drivers (`drizzle-orm/neon-http`, `drizzle-orm/pglite`), and any decryption helper if needed.
@@ -43,7 +52,8 @@ Reference proposal: docs/proposals/database-rewrite-drizzle.md
 ## Workstream C — Schema Mapping (Builder DB)
 
 Strategy
-- Use Archetype’s Kysely TypeScript schema as the primary reference for shape (packages/kysely/databases/schema/**). Port JSONB Zod types to Effect Schema.
+
+- Use Archetype’s Kysely TypeScript schema as the primary reference for shape (packages/kysely/databases/schema/\*\*). Port JSONB Zod types to Effect Schema.
 - Cross-check schema.sql only for indexes, unique constraints, FKs and triggers.
 - Start from `drizzle-kit introspect` if needed to bootstrap definitions, then adjust to match the TS schema.
 - Keep JSONB columns untyped at the DB edge; validate with Effect Schemas in app code.
@@ -51,6 +61,7 @@ Strategy
 Progress (77 tables)
 
 Auth
+
 - [ ] auth.inbox_connection
 - [ ] auth.inbox_connection_sync_job
 - [x] auth.organization (add unique on clerk_org_id, slug)
@@ -60,6 +71,7 @@ Auth
 - [x] auth.user_preferences
 
 Billing Tracking
+
 - [ ] billing_tracking.billing_event_queue
 - [ ] billing_tracking.customer
 - [ ] billing_tracking.invoice
@@ -67,64 +79,66 @@ Billing Tracking
 - [ ] billing_tracking.usage_metrics
 
 Builder
-- [ ] builder.action_draft_email_extracted_input
-- [ ] builder.action_edits_history
-- [ ] builder.action_log
+
+- [x] builder.action_draft_email_extracted_input
+- [x] builder.action_edits_history
+- [x] builder.action_log
 - [x] builder.application_group
-- [ ] builder.athena_onboarding_state
-- [ ] builder.automation_execution
+- [x] builder.athena_onboarding_state
+- [x] builder.automation_execution
 - [x] builder.automation_rule
-- [ ] builder.category
-- [ ] builder.category_with_entity_type
+- [x] builder.category
+- [x] builder.category_with_entity_type
 - [x] builder.chain_run_table (add index on cache_key; result_type is 'success'|'error'|null in TS)
-- [ ] builder.crm_cache
-- [ ] builder.custom_views
-- [ ] builder.data_model_action
-- [ ] builder.data_model_ai_column_metadata
-- [ ] builder.data_model_ai_relation_metadata
-- [ ] builder.data_model_authorization
-- [ ] builder.data_model_entity_relation
-- [ ] builder.data_model_entity_type
-- [ ] builder.data_model_entity_type_column
-- [ ] builder.data_model_entity_type_column_validation
-- [ ] builder.data_model_entity_type_version
-- [ ] builder.data_model_validation_group
-- [ ] builder.data_store_config
-- [ ] builder.derived_column_computation
-- [ ] builder.derived_column_metadata
-- [ ] builder.derived_relation_computation
-- [ ] builder.derived_relation_metadata
+- [x] builder.crm_cache
+- [x] builder.custom_views
+- [x] builder.data_model_action
+- [x] builder.data_model_ai_column_metadata
+- [x] builder.data_model_ai_relation_metadata
+- [x] builder.data_model_authorization
+- [x] builder.data_model_entity_relation
+- [x] builder.data_model_entity_type
+- [x] builder.data_model_entity_type_column
+- [x] builder.data_model_entity_type_column_validation
+- [x] builder.data_model_entity_type_version
+- [x] builder.data_model_validation_group
+- [x] builder.data_store_config
+- [x] builder.derived_column_computation
+- [x] builder.derived_column_metadata
+- [x] builder.derived_relation_computation
+- [x] builder.derived_relation_metadata
 - [x] builder.email
-- [ ] builder.email_extracted_action_input
-- [ ] builder.email_processing
-- [ ] builder.entity_action_draft
-- [ ] builder.entity_comment
-- [ ] builder.entity_enrichment_processing
-- [ ] builder.entity_type_edits_history
+- [x] builder.email_extracted_action_input
+- [x] builder.email_processing
+- [x] builder.entity_action_draft
+- [x] builder.entity_comment
+- [x] builder.entity_enrichment_processing
+- [x] builder.entity_type_edits_history
 - [ ] builder.fake_ai_columns_computation_table
 - [ ] builder.fake_ai_relations_computation_table
 - [ ] builder.fake_data_entity_type_retrieval_pointer
 - [ ] builder.fake_m2m_table
-- [ ] builder.feature_application_run
-- [ ] builder.feature_application_run_features
-- [ ] builder.feature_suggestions_run
-- [ ] builder.features
-- [ ] builder.field_group
+- [x] builder.feature_application_run
+- [x] builder.feature_application_run_features
+- [x] builder.feature_suggestions_run
+- [x] builder.features
+- [x] builder.field_group
 - [x] builder.gmail_message_processing_queue
-- [ ] builder.lock_user_entity_type
-- [ ] builder.onboarding_session
-- [ ] builder.relation_edits_history
-- [ ] builder.state_machine_metadata
-- [ ] builder.state_machine_state
-- [ ] builder.state_machine_transition
-- [ ] builder.version_refs
-- [ ] builder.workspace_version
-- [ ] builder.workspace_version_action_version
-- [ ] builder.workspace_version_entity_type_version
-- [ ] builder.workspace_version_relation_version
-- [ ] builder.workspace_version_state_machine_metadata_version
+- [x] builder.lock_user_entity_type
+- [x] builder.onboarding_session
+- [x] builder.relation_edits_history
+- [x] builder.state_machine_metadata
+- [x] builder.state_machine_state
+- [x] builder.state_machine_transition
+- [x] builder.version_refs
+- [x] builder.workspace_version
+- [x] builder.workspace_version_action_version
+- [x] builder.workspace_version_entity_type_version
+- [x] builder.workspace_version_relation_version
+- [x] builder.workspace_version_state_machine_metadata_version
 
 Marketing
+
 - [ ] marketing.blog_posts
 - [ ] marketing.homepage_generation
 - [ ] marketing.homepage_generation_share
@@ -134,6 +148,7 @@ Marketing
 - [ ] marketing.vertical
 
 Public (migrations)
+
 - [ ] public.kysely_migration
 - [ ] public.kysely_migration_lock
 

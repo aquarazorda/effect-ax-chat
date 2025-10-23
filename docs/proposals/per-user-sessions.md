@@ -21,6 +21,7 @@ This document proposes how to ensure each unique user (e.g., phone number) is ha
 - Agent Adapter: a function that, given a `UserContext`, returns an Effect program (or Ax signature) to process messages.
 
 Schema-first shapes
+
 - All externally shaped data must be defined with Effect Schema. Derive static types from schemas; validate inputs at boundaries (webhooks, SDK callbacks) and encode outputs when crossing process boundaries.
 
 ## Message Model (existing)
@@ -34,19 +35,22 @@ For SMS/WhatsApp via Twilio, `userKey.id` is the E.164 phone number. For Telegra
 
 ## Architecture Options
 
-1) In‑Memory Session Registry (default)
+1. In‑Memory Session Registry (default)
+
 - Mechanism: a `Map<UserKey, Session>` where each `Session` has a `Queue<IncomingMessage>` (mailbox) and a dedicated fiber that loops `Queue.take`, handling messages sequentially.
 - Lifecycle: sessions spawn on first message; an inactivity timer (e.g., 5–15 minutes) reaps idle sessions; capacity strategy configurable (`unbounded`, `bounded`, `sliding`, `dropping`).
 - Pros: simplest to ship; great local DX; predictable ordering per user; no external deps.
 - Cons: not durable across process restarts; single instance only.
 
-2) Redis‑Backed Mailboxes (horizontal scale)
+2. Redis‑Backed Mailboxes (horizontal scale)
+
 - Mechanism: per‑user Redis Stream or Pub/Sub channel (`Bun.redis`). A pool of workers (instances) claims users via consumer groups. Only one worker owns a given user at a time → preserves per‑user ordering.
 - Lifecycle: leases expire on crash; workers resume from last acked id.
 - Pros: horizontal scale; replay/durability; failover.
 - Cons: operational overhead; requires Redis.
 
-3) Durable Local Sessions (SQLite)
+3. Durable Local Sessions (SQLite)
+
 - Mechanism: persist mailbox and checkpoints to `bun:sqlite`. A single instance can recover sessions after restart. Useful for simple deployments without Redis.
 - Pros: durable without network dep; simple ops.
 - Cons: single writer; not horizontally scalable without additional coordination.
@@ -65,9 +69,9 @@ export const UserKeySchema = S.struct({
     S.literal("imessage"),
     S.literal("whatsapp"),
     S.literal("telegram"),
-    S.string // fallback for future platforms
+    S.string, // fallback for future platforms
   ),
-  id: S.string.pipe(S.minLength(1)) // E.164 for SMS, sender id for Telegram
+  id: S.string.pipe(S.minLength(1)), // E.164 for SMS, sender id for Telegram
 });
 // type UserKey = S.TypeOf<typeof UserKeySchema>
 
@@ -77,13 +81,13 @@ export const IncomingMessageSchema = S.struct({
   senderId: S.string,
   text: S.string,
   receivedAt: S.Date, // internal model uses Date
-  metadata: S.optional(S.record(S.string, S.unknown))
+  metadata: S.optional(S.record(S.string, S.unknown)),
 });
 export const OutgoingMessageSchema = S.struct({
   chatId: S.string,
   text: S.string,
   replyToMessageId: S.optional(S.string),
-  metadata: S.optional(S.record(S.string, S.unknown))
+  metadata: S.optional(S.record(S.string, S.unknown)),
 });
 
 // src/runtime/Session.ts (interfaces remain, but rely on schemas at the edges)
@@ -91,7 +95,9 @@ import { Effect, Queue } from "effect";
 
 export interface UserContext {
   readonly key: S.TypeOf<typeof UserKeySchema>;
-  readonly send: (message: S.TypeOf<typeof OutgoingMessageSchema>) => Effect.Effect<void, never>;
+  readonly send: (
+    message: S.TypeOf<typeof OutgoingMessageSchema>,
+  ) => Effect.Effect<void, never>;
 }
 
 export interface Session {
@@ -101,17 +107,17 @@ export interface Session {
 }
 
 export interface SessionPolicy {
-  readonly idleTtl: Duration;    // e.g., 10 minutes
+  readonly idleTtl: Duration; // e.g., 10 minutes
   readonly mailbox: {
-    readonly capacity: number;   // 0 => unbounded
+    readonly capacity: number; // 0 => unbounded
     readonly strategy: "unbounded" | "bounded" | "sliding" | "dropping";
   };
 }
 
 export type AgentFactory<R, E = never> = (
-  ctx: UserContext
+  ctx: UserContext,
 ) => (
-  message: S.TypeOf<typeof IncomingMessageSchema>
+  message: S.TypeOf<typeof IncomingMessageSchema>,
 ) => Effect.Effect<void, E, R>;
 ```
 
@@ -172,94 +178,93 @@ import type { Mailbox } from "./Mailbox";
 export interface SessionRegistryConfig {
   readonly policy: SessionPolicy;
   readonly getUserKey: (
-    m: S.TypeOf<typeof IncomingMessageSchema>
+    m: S.TypeOf<typeof IncomingMessageSchema>,
   ) => S.TypeOf<typeof UserKeySchema>;
 }
 
 export interface SessionRegistry {
   readonly route: (
-    m: S.TypeOf<typeof IncomingMessageSchema>
+    m: S.TypeOf<typeof IncomingMessageSchema>,
   ) => Effect.Effect<void, never>;
 }
 
 export const makeSessionRegistryLayer = <R, E>(
   config: SessionRegistryConfig,
-  makeAgent: AgentFactory<R, E>
-) => Layer.effect(
-  SessionRegistryTag,
-  Effect.gen(function* () {
-    const runtime = yield* Effect.runtime<R>();
-    const index = yield* SessionIndexTag; // DI: session index
-    const mailboxFactory = yield* MailboxFactoryTag; // DI: mailbox provider
+  makeAgent: AgentFactory<R, E>,
+) =>
+  Layer.effect(
+    SessionRegistryTag,
+    Effect.gen(function* () {
+      const runtime = yield* Effect.runtime<R>();
+      const index = yield* SessionIndexTag; // DI: session index
+      const mailboxFactory = yield* MailboxFactoryTag; // DI: mailbox provider
 
-    const keyOf = (k: UserKey) => `${k.platform}:${k.id}`;
+      const keyOf = (k: UserKey) => `${k.platform}:${k.id}`;
 
-    const ensureSession = (
-      key: S.TypeOf<typeof UserKeySchema>
-    ) =>
-      Effect.gen(function* () {
-        const k = keyOf(key);
-        const existing = yield* index.get(k);
-        if (existing) return existing;
+      const ensureSession = (key: S.TypeOf<typeof UserKeySchema>) =>
+        Effect.gen(function* () {
+          const k = keyOf(key);
+          const existing = yield* index.get(k);
+          if (existing) return existing;
 
-        const mailbox = yield* mailboxFactory.create(
-          key,
-          config.policy.mailbox
+          const mailbox = yield* mailboxFactory.create(
+            key,
+            config.policy.mailbox,
+          );
+
+          const send = (m: OutgoingMessage) =>
+            Effect.flatMap(ChatClientTag, (client) => client.send(m));
+
+          const ctx: UserContext = { key, send };
+          const handle = makeAgent(ctx);
+
+          const loop = Effect.scoped(
+            Effect.forever(
+              Effect.race(
+                Queue.take(mailbox).pipe(Effect.flatMap(handle)),
+                Effect.sleep(config.policy.idleTtl).pipe(
+                  Effect.andThen(Effect.fail("idle-timeout" as const)),
+                ),
+              ),
+            ),
+          );
+
+          const fiber = Runtime.runFork(runtime, loop).pipe(
+            Effect.catchAll(() => Effect.unit),
+          );
+
+          const session: Session = { key, mailbox, fiber };
+          yield* index.set(k, session);
+          return session;
+        });
+
+      const route = (m: S.TypeOf<typeof IncomingMessageSchema>) =>
+        Effect.gen(function* () {
+          const key = config.getUserKey(m);
+          const s = yield* ensureSession(key);
+          yield* s.mailbox.offer(m);
+        }).pipe(
+          // if a session times out, remove from map
+          Effect.catchAll(() => Effect.unit),
         );
 
-        const send = (m: OutgoingMessage) =>
-          Effect.flatMap(ChatClientTag, (client) => client.send(m));
-
-        const ctx: UserContext = { key, send };
-        const handle = makeAgent(ctx);
-
-        const loop = Effect.scoped(
-          Effect.forever(
-            Effect.race(
-              Queue.take(mailbox).pipe(Effect.flatMap(handle)),
-              Effect.sleep(config.policy.idleTtl).pipe(
-                Effect.andThen(Effect.fail("idle-timeout" as const))
-              )
-            )
-          )
-        );
-
-        const fiber = Runtime.runFork(runtime, loop).pipe(
-          Effect.catchAll(() => Effect.unit)
-        );
-
-        const session: Session = { key, mailbox, fiber };
-        yield* index.set(k, session);
-        return session;
-      });
-
-    const route = (m: S.TypeOf<typeof IncomingMessageSchema>) =>
-      Effect.gen(function* () {
-        const key = config.getUserKey(m);
-        const s = yield* ensureSession(key);
-        yield* s.mailbox.offer(m);
-      }).pipe(
-        // if a session times out, remove from map
-        Effect.catchAll(() => Effect.unit)
-      );
-
-    return { route } satisfies SessionRegistry;
-  })
-);
+      return { route } satisfies SessionRegistry;
+    }),
+  );
 
 // src/runtime/Router.ts (unchanged, but schemas used at boundaries)
 import { Effect, Stream } from "effect";
 import { ChatClientTag } from "../clients/ChatClient";
 
-export const makeRouter = (
-  registry: SessionRegistry
-) => Effect.gen(function* () {
-  const client = yield* ChatClientTag;
-  yield* Stream.runForEach(client.incoming, registry.route);
-});
+export const makeRouter = (registry: SessionRegistry) =>
+  Effect.gen(function* () {
+    const client = yield* ChatClientTag;
+    yield* Stream.runForEach(client.incoming, registry.route);
+  });
 ```
 
 Notes
+
 - The registry is intentionally transport‑agnostic; it uses only `IncomingMessage` and a `getUserKey` function.
 - The session loop enforces per‑user sequential processing via `Queue.take` and processes messages in order. Idle TTL is implemented by a timed race.
 - To avoid dropped timeouts between messages, you can reset sleep with a small helper or implement `takeOrTimeout(ttl)` using `Effect.race` each iteration (shown above).
@@ -273,12 +278,12 @@ Notes
 ```ts
 const getUserKeyFromTelegram = (m: IncomingMessage): UserKey => ({
   platform: "telegram",
-  id: m.senderId
+  id: m.senderId,
 });
 
 const getUserKeyFromSms = (m: IncomingMessage): UserKey => ({
   platform: "sms",
-  id: (m.metadata?.fromNumber as string) // validated via Schema
+  id: m.metadata?.fromNumber as string, // validated via Schema
 });
 ```
 
@@ -323,21 +328,20 @@ const layer = Layer.mergeAll(
     {
       policy: {
         idleTtl: Duration.minutes(10),
-        mailbox: { capacity: 1024, strategy: "bounded" }
+        mailbox: { capacity: 1024, strategy: "bounded" },
       },
-      getUserKey: (m) => ({ platform: "telegram", id: m.senderId })
+      getUserKey: (m) => ({ platform: "telegram", id: m.senderId }),
     },
-    makeSimpleAgent
-  )
+    makeSimpleAgent,
+  ),
 );
 
 const program = app.start.pipe(
   // Plug the registry’s router in as the Chat handler
-  Effect.provideService(
-    ChatHandlerTag,
-    (message) => SessionRegistryTag.pipe(Effect.flatMap((r) => r.route(message)))
+  Effect.provideService(ChatHandlerTag, (message) =>
+    SessionRegistryTag.pipe(Effect.flatMap((r) => r.route(message))),
   ),
-  Effect.provide(layer)
+  Effect.provide(layer),
 );
 
 Effect.runFork(program);

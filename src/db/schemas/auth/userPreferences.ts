@@ -8,4 +8,3 @@ export const user_preferences = auth("user_preferences", {
   updated_at: timestamp("updated_at", { withTimezone: true }).defaultNow(),
   latest_country_selection: text("latest_country_selection").array(),
 });
-

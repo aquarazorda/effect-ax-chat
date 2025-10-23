@@ -16,7 +16,10 @@ export const AppEnvSchema = S.Struct({
 });
 export type AppEnv = typeof AppEnvSchema.Type;
 
-export class AppEnvTag extends Context.Tag("effect-ax/AppEnv")<AppEnvTag, AppEnv>() {}
+export class AppEnvTag extends Context.Tag("effect-ax/AppEnv")<
+  AppEnvTag,
+  AppEnv
+>() {}
 
 // Parse Bun.env with Effect Schema; fails if required vars are missing.
 const parseEnv = S.decodeUnknown(AppEnvSchema);
@@ -32,7 +35,11 @@ export const makeEnvLayer: Layer.Layer<AppEnvTag> = Layer.effect(
 );
 
 // Convenience: build DbConfigTag from validated env
-export const makeDbConfigFromEnvLayer: Layer.Layer<DbConfigTag, never, AppEnvTag> = Layer.effect(
+export const makeDbConfigFromEnvLayer: Layer.Layer<
+  DbConfigTag,
+  never,
+  AppEnvTag
+> = Layer.effect(
   DbConfigTag,
   Effect.gen(function* () {
     const env = yield* AppEnvTag;

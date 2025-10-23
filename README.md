@@ -23,17 +23,18 @@ import { Effect } from "effect";
 import {
   ChatHandlerTag,
   makeChatApp,
-  makeTelegramClientLayer
+  makeTelegramClientLayer,
 } from "effect-ax";
 
 const chatApp = makeChatApp();
 
 const program = chatApp.start.pipe(
-  Effect.provideService(
-    ChatHandlerTag,
-    (message) => Effect.log(`Received ${message.text}`)
+  Effect.provideService(ChatHandlerTag, (message) =>
+    Effect.log(`Received ${message.text}`),
   ),
-  Effect.provide(makeTelegramClientLayer({ botToken: process.env.TELEGRAM_TOKEN! }))
+  Effect.provide(
+    makeTelegramClientLayer({ botToken: process.env.TELEGRAM_TOKEN! }),
+  ),
 );
 
 Effect.runFork(program);

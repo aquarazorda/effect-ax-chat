@@ -1,10 +1,29 @@
-import { boolean, integer, jsonb, numeric, text, timestamp, varchar, index } from "drizzle-orm/pg-core";
+import {
+  boolean,
+  integer,
+  jsonb,
+  numeric,
+  text,
+  timestamp,
+  varchar,
+  index,
+} from "drizzle-orm/pg-core";
 import { builder } from "../creators";
+import type {
+  ApplicationGroupId,
+  ChainRunId,
+  ColumnId,
+  EntityId,
+  EntityTypeId,
+  OrganizationId,
+  RelationId,
+  UserId,
+} from "../../ids";
 
 export const chain_run_table = builder(
   "chain_run_table",
   {
-    id: varchar("id").notNull().primaryKey(),
+    id: varchar("id").$type<ChainRunId>().notNull().primaryKey(),
     thread_id: text("thread_id").notNull(),
     thread_name: text("thread_name").notNull(),
     chain_name: text("chain_name").notNull(),
@@ -19,13 +38,15 @@ export const chain_run_table = builder(
     updated_at: timestamp("updated_at", { withTimezone: true }).defaultNow(),
     total_tokens: integer("total_tokens"),
     autohealed: boolean("autohealed"),
-    organization_id: varchar("organization_id"),
-    user_id: varchar("user_id"),
-    application_group_id: varchar("application_group_id"),
-    entity_type_id: varchar("entity_type_id"),
-    entity_id: varchar("entity_id"),
-    column_id: varchar("column_id"),
-    relation_id: varchar("relation_id"),
+    organization_id: varchar("organization_id").$type<OrganizationId>(),
+    user_id: varchar("user_id").$type<UserId>(),
+    application_group_id: varchar(
+      "application_group_id",
+    ).$type<ApplicationGroupId>(),
+    entity_type_id: varchar("entity_type_id").$type<EntityTypeId>(),
+    entity_id: varchar("entity_id").$type<EntityId>(),
+    column_id: varchar("column_id").$type<ColumnId>(),
+    relation_id: varchar("relation_id").$type<RelationId>(),
     model: varchar("model"),
     prompt_tokens: integer("prompt_tokens"),
     completion_tokens: integer("completion_tokens"),
@@ -35,4 +56,3 @@ export const chain_run_table = builder(
   },
   (t) => [index("chain_run_table_cache_key_idx").on(t.cache_key)],
 );
-

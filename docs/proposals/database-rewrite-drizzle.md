@@ -26,29 +26,33 @@ There is also a dynamic “customer data” layer managed by code (table-per-ent
 Keep it simple to avoid barrel-file pitfalls and deep trees. A single schema module that defines all tables by schema, plus a tiny DI layer:
 
 - src/db/
-  - schema.ts        // Drizzle table definitions for all schemas (auth, builder, billing_tracking, marketing)
-  - schemas.ts       // Effect Schemas for JSONB columns (grouped here)
-  - tags.ts          // DbConfigTag, DrizzleDbTag
-  - connect.ts       // makeDbLayer(driver) returning Drizzle instance via DI
-  - tx.ts            // withTransaction helper (optional)
-- drizzle.config.ts  // drizzle-kit config (introspect/generate/migrate)
+  - schema.ts // Drizzle table definitions for all schemas (auth, builder, billing_tracking, marketing)
+  - schemas.ts // Effect Schemas for JSONB columns (grouped here)
+  - tags.ts // DbConfigTag, DrizzleDbTag
+  - connect.ts // makeDbLayer(driver) returning Drizzle instance via DI
+  - tx.ts // withTransaction helper (optional)
+- drizzle.config.ts // drizzle-kit config (introspect/generate/migrate)
 
 Notes
+
 - Do not create barrel re-exports. Import tables directly from `src/db/schema.ts` where needed.
 - If the schema grows unwieldy, split into a few files per Postgres schema (e.g., `schema.auth.ts`), but still import them into `schema.ts` without re-exporting wildcards.
 
 ## Drivers and Connectivity (DI)
 
 To satisfy “no pg/postgres.js” while supporting Postgres:
+
 - Production: Neon HTTP driver (`drizzle-orm/neon-http`), uses fetch — no node pg/postgres.js runtime.
 - Local dev: PGlite (`@electric-sql/pglite`) via `drizzle-orm/pglite` for an embedded, fast Postgres-compatible environment; or Neon local branch.
 - Tests: PGlite for hermetic tests.
 
 We model DI with Effect Tags/Layers:
+
 - DbConfigTag: connection strings, schema defaults, migrations dir
 - DrizzleDbTag: typed Drizzle instance created from config
 
 One Layer per driver:
+
 - makeNeonDbLayer(config): uses `drizzle-orm/neon-http`
 - makePgliteDbLayer(config): uses `drizzle-orm/pglite`
 
@@ -77,7 +81,14 @@ Drizzle (simplified)
 
 ```ts
 // packages/db/src/schema/auth/organization.ts
-import { pgSchema, varchar, text, jsonb, timestamp, pgEnum } from "drizzle-orm/pg-core";
+import {
+  pgSchema,
+  varchar,
+  text,
+  jsonb,
+  timestamp,
+  pgEnum,
+} from "drizzle-orm/pg-core";
 import * as S from "@effect/schema/Schema";
 
 export const Auth = pgSchema("auth");
@@ -123,16 +134,22 @@ Read/Write helpers
 import { Context, Effect, Layer } from "effect";
 import type { NeonHttpDatabase } from "drizzle-orm/neon-http";
 
-export class DrizzleDbTag extends Context.Tag("effect-ax/DrizzleDb")<DrizzleDbTag, NeonHttpDatabase>() {}
+export class DrizzleDbTag extends Context.Tag("effect-ax/DrizzleDb")<
+  DrizzleDbTag,
+  NeonHttpDatabase
+>() {}
 
 // packages/db/src/client/drizzle.ts
 import { drizzle as drizzleNeon } from "drizzle-orm/neon-http";
 import { DrizzleDbTag } from "../tags";
 
-export const makeDrizzleLayer = Layer.effect(DrizzleDbTag, Effect.sync(() => {
-  // construct neon client from injected config (DbConfigTag)
-  // return drizzleNeon(neonClient, { schema: { ... } });
-}));
+export const makeDrizzleLayer = Layer.effect(
+  DrizzleDbTag,
+  Effect.sync(() => {
+    // construct neon client from injected config (DbConfigTag)
+    // return drizzleNeon(neonClient, { schema: { ... } });
+  }),
+);
 ```
 
 ## Example: builder.chain_run_table
@@ -141,7 +158,17 @@ Key columns (based on archetype): inputs jsonb, context_inputs jsonb, formatted_
 
 ```ts
 // packages/db/src/schema/builder/chainRun.ts
-import { pgSchema, uuid, text, jsonb, numeric, integer, timestamp, boolean, varchar } from "drizzle-orm/pg-core";
+import {
+  pgSchema,
+  uuid,
+  text,
+  jsonb,
+  numeric,
+  integer,
+  timestamp,
+  boolean,
+  varchar,
+} from "drizzle-orm/pg-core";
 import * as S from "@effect/schema/Schema";
 
 export const Builder = pgSchema("builder");
@@ -195,6 +222,7 @@ Archetype operates with a single Builder database and many customer/organization
 - Customer/Org DBs: per-organization databases holding customer data; connections are derived per org (e.g., Neon branch) and opened on demand.
 
 Integration plan with Drizzle + Effect:
+
 - BuilderDbTag: Drizzle instance connected to the builder DB.
 - OrgDbResolverTag: Effect service to resolve a Drizzle instance for a given `organizationId`.
 - Optional LRU cache with TTL for org Drizzle instances to avoid churn; release on scope shutdown.
@@ -206,15 +234,24 @@ Tags and interfaces
 import { Context } from "effect";
 import type { NeonHttpDatabase } from "drizzle-orm/neon-http";
 
-export class BuilderDbTag extends Context.Tag("effect-ax/BuilderDb")<BuilderDbTag, NeonHttpDatabase>() {}
+export class BuilderDbTag extends Context.Tag("effect-ax/BuilderDb")<
+  BuilderDbTag,
+  NeonHttpDatabase
+>() {}
 
 export interface OrgDbResolver {
-  readonly get: (organizationId: string) => Effect.Effect<NeonHttpDatabase, DbError, BuilderDbTag | DbConfigTag>;
+  readonly get: (
+    organizationId: string,
+  ) => Effect.Effect<NeonHttpDatabase, DbError, BuilderDbTag | DbConfigTag>;
 }
-export class OrgDbResolverTag extends Context.Tag("effect-ax/OrgDbResolver")<OrgDbResolverTag, OrgDbResolver>() {}
+export class OrgDbResolverTag extends Context.Tag("effect-ax/OrgDbResolver")<
+  OrgDbResolverTag,
+  OrgDbResolver
+>() {}
 ```
 
 Resolution strategy
+
 - Read connection material from the Builder DB (e.g., `auth.organization.store_connection_string_encrypted` or derive Neon branch naming). Decrypt using env-provided key (`DATABASE_ENCRYPTION_KEY_B64`) via a small Effect service.
 - Construct a Neon HTTP client for the org and wrap with Drizzle; memoize by `organizationId`.
 - In tests/local, map `organizationId` to a PGlite database (file-backed or in-memory) via the PGlite Layer.
@@ -232,6 +269,7 @@ Effect.flatMap(OrgDbResolverTag, (r) => r.get(orgId)).pipe(
 ```
 
 Migration policy
+
 - Builder DB: managed via drizzle-kit in this repo (generate/migrate scripts). Changes are explicit and reviewed.
 - Org DBs: no global migrations run from this app unless explicitly invoked; dynamic DDL (e.g., per-entity-type tables, FTS) can be provided behind a separate Effect service and invoked in controlled flows.
 
@@ -244,6 +282,7 @@ Migration policy
 - Use schema.sql for cross-checking indexes, unique constraints, and FKs.
 
 For example:
+
 - auth.organization: unique on clerk_org_id and slug; multiple optional social fields; clerk_data JSONB.
 - auth.user: unique on clerk_user_id; optional primary_organization_id FK; clerk_data JSONB.
 - builder.chain_run_table: typed JSONB fields (inputs, context_inputs, result); index on cache_key.
@@ -294,9 +333,9 @@ This phase is optional for initial chat-focused needs; we can prioritize the cor
 
 ## Next Steps
 
-1) Scaffold packages/db with schema folders for auth, builder, billing_tracking, marketing.
-2) Add drizzle.config.ts and Bun scripts for generate/migrate.
-3) Implement DI layers for Neon/PGlite; wire `DrizzleDbTag` and `withTransaction` helper.
-4) Port core tables (auth.organization, auth.user, builder.chain_run_table, billing_tracking.usage_metrics) and a couple of essential FKs/indexes.
-5) Integrate Effect Schema for jsonb columns; add minimal decoding/encoding helpers.
-6) Validate by generating migrations and diffing with a subset of Archetype’s schema.sql where applicable.
+1. Scaffold packages/db with schema folders for auth, builder, billing_tracking, marketing.
+2. Add drizzle.config.ts and Bun scripts for generate/migrate.
+3. Implement DI layers for Neon/PGlite; wire `DrizzleDbTag` and `withTransaction` helper.
+4. Port core tables (auth.organization, auth.user, builder.chain_run_table, billing_tracking.usage_metrics) and a couple of essential FKs/indexes.
+5. Integrate Effect Schema for jsonb columns; add minimal decoding/encoding helpers.
+6. Validate by generating migrations and diffing with a subset of Archetype’s schema.sql where applicable.

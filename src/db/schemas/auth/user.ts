@@ -1,4 +1,10 @@
-import { jsonb, text, uniqueIndex, varchar, timestamp } from "drizzle-orm/pg-core";
+import {
+  jsonb,
+  text,
+  uniqueIndex,
+  varchar,
+  timestamp,
+} from "drizzle-orm/pg-core";
 import { auth } from "../creators";
 
 export const user = auth(
@@ -17,4 +23,3 @@ export const user = auth(
   },
   (t) => [uniqueIndex("user_clerk_user_id_key").on(t.clerk_user_id)],
 );
-

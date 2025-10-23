@@ -23,11 +23,11 @@ export interface ChatClientError {
 
 export const makeChatClientError = (
   message: string,
-  cause?: unknown
+  cause?: unknown,
 ): ChatClientError => ({
   _tag: "ChatClientError",
   message,
-  cause
+  cause,
 });
 
 export interface ChatClient {
@@ -35,7 +35,9 @@ export interface ChatClient {
   readonly connect: Effect.Effect<void, ChatClientError>;
   readonly disconnect: Effect.Effect<void, never>;
   readonly incoming: Stream.Stream<IncomingMessage, ChatClientError>;
-  readonly send: (message: OutgoingMessage) => Effect.Effect<void, ChatClientError>;
+  readonly send: (
+    message: OutgoingMessage,
+  ) => Effect.Effect<void, ChatClientError>;
 }
 
 export class ChatClientTag extends Context.Tag("effect-ax/ChatClient")<
