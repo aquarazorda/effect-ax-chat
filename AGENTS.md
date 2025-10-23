@@ -26,3 +26,12 @@
 - Use Bun’s dev ergonomics (`bun --hot`, etc.) when hot reload or live bundling is desired.
 - Before spelunking through vendored `.d.ts` files, consult the freshest package documentation via Context7; only fall back to local type exploration if the docs lack the needed information.
 - AX documentation for a LLM can be found at https://axllm.dev/llm.txt
+
+## Module Structure Guidelines
+
+- Avoid barrel files (index.ts that re-export entire folders). Import only what you need from concrete modules so tree‑shaking remains effective and bundle size stays minimal.
+
+## Environment Configuration
+
+- Read environment variables via `src/env.ts` (AppEnvTag + makeEnvLayer). Do not access `process.env` or `Bun.env` directly in application code.
+- Validate required envs with Effect Schema; fail fast on startup. Inject derived configs (e.g., DbConfigTag) via Layers.
