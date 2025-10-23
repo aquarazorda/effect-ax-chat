@@ -11,6 +11,8 @@
 - Exercise test discipline: integrate effect-based property tests or replayable transcripts whenever behavior could regress silently.
 - Close feature-sized tasks with a typecheck pass (`bun typecheck`) and resolve any surfaced issues before handoff.
 - Escalate anomalies: if production data, secrets, or policy conflicts surface, halt execution and request explicit human guidance before proceeding.
+- Prefer Effect Schema for runtime validation and type inference when shaping external data; re-evaluate existing code paths and adopt schemas where the added safety outweighs the overhead.
+- Bias toward simple, readable implementations that avoid duplication and favor performance where it matters—clarity first, DRY second, efficiency third.
 
 ## Bun Workflow Standards
 

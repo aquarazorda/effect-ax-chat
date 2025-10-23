@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@ax-llm/ax": "latest",
-    "effect": "latest"
+    "effect": "latest",
+    "telegraf": "^4.16.3"
   }
 }
