@@ -26,11 +26,12 @@ Reference proposal: docs/proposals/database-rewrite-drizzle.md
 ## Workstream A — Project Setup
 
 - [ ] Add dependencies: `drizzle-orm`, `drizzle-kit`, `@effect/schema`, drivers (`drizzle-orm/neon-http`, `drizzle-orm/pglite`), and any decryption helper if needed.
-- [ ] Create `src/db/schema.ts` (single entry) with initial table definitions.
-- [ ] Create `src/db/schemas.ts` for Effect Schemas used by JSONB columns.
-- [ ] Create `src/db/tags.ts` with `BuilderDbTag` and `OrgDbResolverTag` (and `DbConfigTag`).
-- [ ] Create `src/db/connect.ts` with `makeNeonDbLayer` and `makePgliteDbLayer`.
-- [ ] Create `drizzle.config.ts` and Bun scripts (`db:introspect`, `db:generate`, `db:migrate`, `db:down`).
+- [x] Create `src/db/schema.ts` (single entry) with initial table definitions (placeholder).
+- [x] Create `src/db/schemas.ts` for Effect Schemas used by JSONB columns.
+- [x] Create `src/db/tags.ts` with `BuilderDbTag` and `OrgDbResolverTag` (and `DbConfigTag`).
+- [x] Create `src/db/connect.ts` with builder/org Layers (placeholders).
+- [x] Create `drizzle.config.ts`.
+- [ ] Add Bun scripts (`db:introspect`, `db:generate`, `db:migrate`, `db:down`).
 
 ## Workstream B — Connectivity and DI
 
