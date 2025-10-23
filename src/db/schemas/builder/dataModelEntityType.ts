@@ -1,4 +1,4 @@
-import { index, jsonb, text, varchar } from "drizzle-orm/pg-core";
+import { index, text, varchar } from "drizzle-orm/pg-core";
 import { builder } from "../creators";
 import type {
   ApplicationGroupId,

@@ -9,7 +9,7 @@ This document proposes how to ensure each unique user (e.g., phone number) is ha
 - Declarative, typesafe APIs that integrate with Ax for agent behaviors.
 - Stream-friendly processing with backpressure and safe boundaries for IO.
 - Clear lifecycle (spawn, idle timeout, shutdown) with optional durability.
-- Pluggable persistence (in-memory by default, `bun:sqlite` and `Bun.redis` as options).
+- Pluggable persistence (in-memory by default, `bun:sqlite` and `Bun.redis` as options). Optionally integrate Builder DB (Drizzle) for durable artifacts and org-aware session enrichment.
 
 ## Key Concepts
 
@@ -107,7 +107,7 @@ export interface Session {
 }
 
 export interface SessionPolicy {
-  readonly idleTtl: Duration; // e.g., 10 minutes
+  readonly idleTtlMillis: number; // e.g., 10 * 60_000
   readonly mailbox: {
     readonly capacity: number; // 0 => unbounded
     readonly strategy: "unbounded" | "bounded" | "sliding" | "dropping";
@@ -222,7 +222,7 @@ export const makeSessionRegistryLayer = <R, E>(
             Effect.forever(
               Effect.race(
                 Queue.take(mailbox).pipe(Effect.flatMap(handle)),
-                Effect.sleep(config.policy.idleTtl).pipe(
+                Effect.sleep(config.policy.idleTtlMillis).pipe(
                   Effect.andThen(Effect.fail("idle-timeout" as const)),
                 ),
               ),
@@ -312,10 +312,12 @@ export const makeSimpleAgent: AgentFactory<never, never> = (ctx) => (m) =>
 Minimal program wiring with Telegram (others analogous):
 
 ```ts
-import { Effect, Layer, Duration } from "effect";
+import { Effect, Layer } from "effect";
 import { makeChatApp, ChatHandlerTag } from "effect-ax"; // existing exports
 import { makeTelegramClientLayer } from "effect-ax";
 import { makeSessionRegistryLayer } from "./runtime/SessionRegistry";
+import { makeInMemoryMailboxFactoryLayer } from "./runtime/Mailbox";
+import { makeInMemorySessionIndexLayer } from "./runtime/SessionIndex";
 
 const app = makeChatApp();
 
@@ -327,7 +329,7 @@ const layer = Layer.mergeAll(
   makeSessionRegistryLayer(
     {
       policy: {
-        idleTtl: Duration.minutes(10),
+        idleTtlMillis: 10 * 60_000,
         mailbox: { capacity: 1024, strategy: "bounded" },
       },
       getUserKey: (m) => ({ platform: "telegram", id: m.senderId }),
@@ -392,3 +394,53 @@ Effect.runFork(program);
 - Integrate optional persistence layers and a Redis variant behind the same `SessionRegistry` interface.
 - Add tests for message ordering, idle TTL reaping, and multi‑transport routing.
 - Run `bun typecheck` and `bun test` before handoff.
+
+---
+
+# Tenancy and Org Resolution (DB Integration)
+
+This section integrates the Drizzle + Effect Schema DB work (see docs/plan/db-migration-plan.md) with per-user sessions.
+
+Goals
+
+- Enrich sessions with organization context when applicable (multi-tenant bots).
+- Keep agent code agnostic; inject org-specific resources via Layers/Tags.
+- Avoid hard dependencies: the registry stays transport- and tenant-agnostic; org resolution is an optional adapter.
+
+Builder/Org DB Layers
+
+- Use `DbConfigTag` + `makeBuilderDbLayer` to access the Builder DB.
+- Use `OrgDbResolverTag` to lazily resolve an Org DB when needed.
+
+Org Resolution Strategy
+
+- Add an optional `resolveOrg` function to `SessionRegistryConfig` (or wrap `getUserKey`) that maps an `IncomingMessage` to an `organizationId` and any additional context needed by the agent (e.g., workspace version).
+- The `AgentFactory` can then incorporate a Layer that provides org-aware services once per session, reusing them across messages.
+
+Sketch
+
+```ts
+interface OrgContext {
+  readonly organizationId: typeof OrganizationIdSchema.Type;
+}
+
+interface SessionRegistryConfig {
+  readonly policy: SessionPolicy;
+  readonly getUserKey: (m: IncomingMessage) => UserKey;
+  readonly resolveOrg?: (
+    m: IncomingMessage,
+  ) => Effect.Effect<OrgContext | undefined, DbError, BuilderDbTag>;
+}
+
+export type AgentFactory<R, E = never> = (
+  ctx: UserContext & { org?: OrgContext },
+) => (m: IncomingMessage) => Effect.Effect<void, E, R>;
+```
+
+- If `resolveOrg` is present, the registry calls it once on first message of a session and passes the `org` into the `AgentFactory` context.
+- Agents that need DBs can pull `OrgDbResolverTag` to obtain a per-org Drizzle handle using `org.organizationId`.
+
+Durability and Transcripts
+
+- Default remains in-memory. For durable transcripts or state snapshots, prefer a dedicated table (future) in the Builder DB rather than overloading existing tables.
+- Validate JSONB payloads with Effect Schemas from `src/db/jsonbSchemas.ts` when persisting across boundaries.
