@@ -1,5 +1,6 @@
 import { Context, Effect } from "effect";
 import type { NeonHttpDatabase } from "drizzle-orm/neon-http";
+import type { PgliteDatabase } from "drizzle-orm/pglite";
 import { dbSchema } from "./schema";
 
 export interface DbError {
@@ -15,9 +16,13 @@ export const makeDbError = (message: string, cause?: unknown): DbError => ({
 });
 
 /** Builder (platform) database handle */
+export type BuilderDatabase =
+  | NeonHttpDatabase<typeof dbSchema>
+  | PgliteDatabase<typeof dbSchema>;
+
 export class BuilderDbTag extends Context.Tag("effect-ax/BuilderDb")<
   BuilderDbTag,
-  NeonHttpDatabase<typeof dbSchema>
+  BuilderDatabase
 >() {}
 
 /** Per‑organization database resolver */

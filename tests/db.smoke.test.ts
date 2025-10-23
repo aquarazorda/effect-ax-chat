@@ -2,7 +2,10 @@ import { expect, test } from "bun:test";
 import { PGlite } from "@electric-sql/pglite";
 import { drizzle as drizzlePglite } from "drizzle-orm/pglite";
 import { dbSchema } from "../src/db/schema";
-import { validateChainRunInputsForWrite, decodeChainRunInputs } from "../src/db/jsonbCodecs";
+import {
+  validateChainRunInputsForWrite,
+  decodeChainRunInputs,
+} from "../src/db/jsonbCodecs";
 import * as S from "effect/Schema";
 import { ChainRunIdSchema } from "../src/db/ids";
 import { eq } from "drizzle-orm";

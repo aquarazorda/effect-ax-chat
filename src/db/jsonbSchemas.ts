@@ -2,10 +2,16 @@ import * as S from "effect/Schema";
 import { JsonSchema } from "./json";
 
 // Chain runs
-export const ChainRunInputsSchema = S.Record({ key: S.String, value: JsonSchema });
+export const ChainRunInputsSchema = S.Record({
+  key: S.String,
+  value: JsonSchema,
+});
 export type ChainRunInputs = typeof ChainRunInputsSchema.Type;
 
-export const ChainRunContextInputsSchema = S.Record({ key: S.String, value: JsonSchema });
+export const ChainRunContextInputsSchema = S.Record({
+  key: S.String,
+  value: JsonSchema,
+});
 export type ChainRunContextInputs = typeof ChainRunContextInputsSchema.Type;
 
 export const ChainRunResultSchema = JsonSchema;

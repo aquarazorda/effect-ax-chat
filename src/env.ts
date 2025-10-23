@@ -13,6 +13,10 @@ export const AppEnvSchema = S.Struct({
   // Optional: used for decrypting per‑org connection strings
   DATABASE_ENCRYPTION_KEY_B64: S.optional(S.String),
   DATABASE_ENCRYPTION_IV_LENGTH: S.optional(S.String),
+
+  // Optional: choose DB driver for Builder DB connection
+  // "neon" (default) or "pglite" (in-memory / local)
+  DB_DRIVER: S.optional(S.Union(S.Literal("neon"), S.Literal("pglite"))),
 });
 export type AppEnv = typeof AppEnvSchema.Type;
 
@@ -31,6 +35,7 @@ export const makeEnvLayer: Layer.Layer<AppEnvTag> = Layer.effect(
     TELEGRAM_TOKEN: Bun.env.TELEGRAM_TOKEN,
     DATABASE_ENCRYPTION_KEY_B64: Bun.env.DATABASE_ENCRYPTION_KEY_B64,
     DATABASE_ENCRYPTION_IV_LENGTH: Bun.env.DATABASE_ENCRYPTION_IV_LENGTH,
+    DB_DRIVER: Bun.env.DB_DRIVER,
   }).pipe(Effect.orDie),
 );
 

@@ -11,8 +11,7 @@ import {
 
 // Small helpers to validate JSONB payloads at boundaries.
 
-const makeDecoder = <A>(schema: S.Schema<A>) =>
-  S.decodeUnknownSync(schema);
+const makeDecoder = <A>(schema: S.Schema<A>) => S.decodeUnknownSync(schema);
 
 export const decodeChainRunInputs = makeDecoder(ChainRunInputsSchema);
 export const decodeChainRunContextInputs = makeDecoder(
@@ -31,11 +30,11 @@ export const decodeClerkData = makeDecoder(ClerkDataSchema);
 
 // For writes, we validate the outgoing value and return it typed
 export const validateChainRunInputsForWrite = decodeChainRunInputs;
-export const validateChainRunContextInputsForWrite = decodeChainRunContextInputs;
+export const validateChainRunContextInputsForWrite =
+  decodeChainRunContextInputs;
 export const validateChainRunResultForWrite = decodeChainRunResult;
 export const validateAutomationTriggerConfigForWrite =
   decodeAutomationTriggerConfig;
 export const validateEmailRecipientsForWrite = decodeEmailRecipients;
 export const validateEmailDataForWrite = decodeEmailData;
 export const validateClerkDataForWrite = decodeClerkData;
-

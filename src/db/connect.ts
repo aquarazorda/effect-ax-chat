@@ -1,18 +1,26 @@
 import { Effect, Layer } from "effect";
 import { BuilderDbTag, OrgDbResolverTag, makeDbError } from "./tags";
-import type { OrgDbResolver } from "./tags";
+import type { OrgDbResolver, DbError } from "./tags";
 import { DbConfigTag } from "./config";
 import type { DbConfig } from "./config";
 import {
   drizzle as drizzleNeon,
   type NeonHttpDatabase,
 } from "drizzle-orm/neon-http";
+import {
+  drizzle as drizzlePglite,
+  type PgliteDatabase,
+} from "drizzle-orm/pglite";
+import { PGlite } from "@electric-sql/pglite";
 import { neon } from "@neondatabase/serverless";
 import { dbSchema } from "./schema";
 import { eq } from "drizzle-orm";
 import { createDecipheriv } from "crypto";
 import { AppEnvTag } from "../env";
 import type { AppEnv } from "../env";
+import { sql } from "drizzle-orm";
+import { DbHealthTag } from "./health";
+import type { BuilderDatabase } from "./tags";
 import * as S from "effect/Schema";
 import { OrganizationIdSchema } from "./ids";
 
@@ -25,18 +33,30 @@ const makeNeonDb = (cfg: DbConfig): NeonHttpDatabase<typeof dbSchema> => {
   return drizzleNeon(sql, { schema: dbSchema });
 };
 
+const makePgliteDb = (): PgliteDatabase<typeof dbSchema> => {
+  const client = new PGlite();
+  return drizzlePglite(client, { schema: dbSchema });
+};
+
 /**
  * Builder DB (single) layer. Uses DbConfigTag for connection info.
  * Swap internals with neon-http drizzle connection when packages are available.
  */
-export const makeBuilderDbLayer: Layer.Layer<BuilderDbTag, never, DbConfigTag> =
-  Layer.effect(
-    BuilderDbTag,
-    Effect.gen(function* () {
-      const cfg: DbConfig = yield* DbConfigTag;
-      return makeNeonDb(cfg);
-    }),
-  );
+export const makeBuilderDbLayer: Layer.Layer<
+  BuilderDbTag,
+  never,
+  DbConfigTag | AppEnvTag
+> = Layer.effect(
+  BuilderDbTag,
+  Effect.gen(function* () {
+    const cfg: DbConfig = yield* DbConfigTag;
+    const env: AppEnv = yield* AppEnvTag;
+    const driver = env.DB_DRIVER ?? "neon";
+    const db: BuilderDatabase =
+      driver === "pglite" ? makePgliteDb() : makeNeonDb(cfg);
+    return db;
+  }),
+);
 
 /**
  * Org DB resolver. Implementation strategy:
@@ -121,6 +141,49 @@ export const makeOrgDbResolverLayer: Layer.Layer<
 /**
  * Optional helper for withTransaction to be implemented when drivers are wired.
  */
-export const withTransaction = <R, E, A>(
-  fa: Effect.Effect<A, E, R>,
-): Effect.Effect<A, E, R> => fa;
+export const withTransaction = <E, A>(
+  use: (tx: BuilderDatabase) => Effect.Effect<A, E, never>,
+): Effect.Effect<A, E | DbError, BuilderDbTag> =>
+  Effect.gen(function* () {
+    const db = yield* BuilderDbTag;
+    const result = yield* Effect.tryPromise({
+      try: async () =>
+        await (db as any).transaction(async (tx: BuilderDatabase) =>
+          Effect.runPromise(use(tx)),
+        ),
+      catch: (cause) => makeDbError("DB transaction failed", cause),
+    });
+    return result as A;
+  });
+
+// Health layer
+export const makeDbHealthLayer: Layer.Layer<
+  DbHealthTag,
+  never,
+  BuilderDbTag | OrgDbResolverTag
+> = Layer.effect(
+  DbHealthTag,
+  Effect.gen(function* () {
+    const builder = yield* BuilderDbTag;
+    const resolver = yield* OrgDbResolverTag;
+
+    const checkBuilder = Effect.tryPromise({
+      try: async () => {
+        await (builder as any).execute(sql`select 1`);
+      },
+      catch: (cause) => makeDbError("Builder DB health check failed", cause),
+    });
+
+    const checkOrg: (id: string) => Effect.Effect<void, DbError> = (id) =>
+      Effect.flatMap(resolver.get(id), (orgDb) =>
+        Effect.tryPromise({
+          try: async () => {
+            await (orgDb as any).execute(sql`select 1`);
+          },
+          catch: (cause) => makeDbError("Org DB health check failed", cause),
+        }),
+      );
+
+    return { checkBuilder, checkOrg };
+  }),
+);
