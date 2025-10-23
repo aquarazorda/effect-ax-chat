@@ -3,16 +3,24 @@
   "module": "index.ts",
   "type": "module",
   "scripts": {
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "db:introspect": "drizzle-kit introspect --config=drizzle.config.ts",
+    "db:generate": "drizzle-kit generate --config=drizzle.config.ts",
+    "db:migrate": "drizzle-kit migrate --config=drizzle.config.ts",
+    "db:studio": "drizzle-kit studio --config=drizzle.config.ts"
   },
   "devDependencies": {
-    "@types/bun": "latest"
+    "@types/bun": "latest",
+    "drizzle-kit": "^0.31.5"
   },
   "peerDependencies": {
     "typescript": "^5.9.3"
   },
   "dependencies": {
     "@ax-llm/ax": "latest",
+    "@electric-sql/pglite": "^0.3.11",
+    "@neondatabase/serverless": "^1.0.2",
+    "drizzle-orm": "^0.44.7",
     "effect": "latest",
     "telegraf": "^4.16.3"
   }

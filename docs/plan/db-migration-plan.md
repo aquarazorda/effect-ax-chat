@@ -43,20 +43,21 @@ Reference proposal: docs/proposals/database-rewrite-drizzle.md
 ## Workstream C — Schema Mapping (Builder DB)
 
 Strategy
-- Start from `drizzle-kit introspect` against the Builder DB to generate a baseline.
-- Replace/adjust definitions to exactly match existing names (schemas, tables, snake_case columns, enums, arrays, PK/UK/FKs). Do not camelCase columns.
-- Keep JSONB columns untyped at the DB edge; define Effect Schemas and encode/decode at repository boundaries.
+- Use Archetype’s Kysely TypeScript schema as the primary reference for shape (packages/kysely/databases/schema/**). Port JSONB Zod types to Effect Schema.
+- Cross-check schema.sql only for indexes, unique constraints, FKs and triggers.
+- Start from `drizzle-kit introspect` if needed to bootstrap definitions, then adjust to match the TS schema.
+- Keep JSONB columns untyped at the DB edge; validate with Effect Schemas in app code.
 
 Progress (77 tables)
 
 Auth
 - [ ] auth.inbox_connection
 - [ ] auth.inbox_connection_sync_job
-- [ ] auth.organization
+- [x] auth.organization (add unique on clerk_org_id, slug)
 - [ ] auth.organization_user
 - [ ] auth.organization_user_entity_id
-- [ ] auth."user"
-- [ ] auth.user_preferences
+- [x] auth."user" (add unique on clerk_user_id; FK to organization optional)
+- [x] auth.user_preferences
 
 Billing Tracking
 - [ ] billing_tracking.billing_event_queue
@@ -69,13 +70,13 @@ Builder
 - [ ] builder.action_draft_email_extracted_input
 - [ ] builder.action_edits_history
 - [ ] builder.action_log
-- [ ] builder.application_group
+- [x] builder.application_group
 - [ ] builder.athena_onboarding_state
 - [ ] builder.automation_execution
-- [ ] builder.automation_rule
+- [x] builder.automation_rule
 - [ ] builder.category
 - [ ] builder.category_with_entity_type
-- [ ] builder.chain_run_table
+- [x] builder.chain_run_table (add index on cache_key; result_type is 'success'|'error'|null in TS)
 - [ ] builder.crm_cache
 - [ ] builder.custom_views
 - [ ] builder.data_model_action
@@ -93,7 +94,7 @@ Builder
 - [ ] builder.derived_column_metadata
 - [ ] builder.derived_relation_computation
 - [ ] builder.derived_relation_metadata
-- [ ] builder.email
+- [x] builder.email
 - [ ] builder.email_extracted_action_input
 - [ ] builder.email_processing
 - [ ] builder.entity_action_draft
@@ -109,7 +110,7 @@ Builder
 - [ ] builder.feature_suggestions_run
 - [ ] builder.features
 - [ ] builder.field_group
-- [ ] builder.gmail_message_processing_queue
+- [x] builder.gmail_message_processing_queue
 - [ ] builder.lock_user_entity_type
 - [ ] builder.onboarding_session
 - [ ] builder.relation_edits_history

@@ -3,6 +3,7 @@
 - Maintain shared context: update `AGENTS.md` whenever expectations or processes change so every agent inherits the same source of truth.
 - Coordinate via effects: prefer composing new capabilities as `Effect` programs so they can be reused, tested, or provided via layers without side effects.
 - Try to never cast and never use any, everything should be typesafe
+- Avoid type assertions (`as ...`) and non-null assertions (`!`). Prefer Effect Schema validation, Option/Either, and well-typed constructors over assertions.
 - Favor declarative Ax signatures: define desired outcomes in Ax signatures first, then refine with assertions or optimizers instead of manual prompt tweaks.
 - Preserve reproducibility: keep configuration (API keys, model selections, optimization strategies) injectable via layers or environment tags—never hard-code secrets.
 - Validate safety first: add assertion guards for risky operations (external tool calls, system commands, data mutations) before enabling autonomous execution.

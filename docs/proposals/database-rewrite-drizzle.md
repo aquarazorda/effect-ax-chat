@@ -66,7 +66,7 @@ Swapping drivers requires only Layer changes, not code changes.
 
 ## Effect Schema Integration
 
-- All externally shaped data must have Effect Schemas (e.g., jsonb columns such as clerk_data, emails metadata, action inputs/outputs).
+- All externally shaped data must have Effect Schemas (e.g., jsonb columns such as clerk_data, emails metadata, action inputs/outputs). Use Archetype’s Kysely JSONB Zod schemas as the source of truth and port them to Effect Schema where practical.
 - At read time: decode jsonb via Effect Schema (`Schema.decodeUnknownSync` or `Effect.try` with async decode) into typed structures.
 - At write time: encode via Effect Schema to ensure valid payloads and to protect against drift.
 - Prefer module-local schemas colocated with the defining table file, re-exported from schema/schemas.ts for reuse.
@@ -158,6 +158,7 @@ export const chainRun = Builder.table("chain_run_table", {
   contextInputs: jsonb("context_inputs"),
   formattedPrompt: text("formatted_prompt"),
   duration: numeric("duration"),
+  // In Kysely TS this is typed as 'success' | 'error' | null; DB column is text
   resultType: text("result_type"),
   result: jsonb("result"),
   error: text("error"),
@@ -233,6 +234,19 @@ Effect.flatMap(OrgDbResolverTag, (r) => r.get(orgId)).pipe(
 Migration policy
 - Builder DB: managed via drizzle-kit in this repo (generate/migrate scripts). Changes are explicit and reviewed.
 - Org DBs: no global migrations run from this app unless explicitly invoked; dynamic DDL (e.g., per-entity-type tables, FTS) can be provided behind a separate Effect service and invoked in controlled flows.
+
+## Kysely TS as Primary Reference
+
+- Prefer the Archetype Kysely TypeScript schema (packages/kysely/databases/schema/...) over schema.sql when determining:
+  - JSONB shapes (Zod types) to port to Effect Schema
+  - Optionality/nullability and Generated/Default behaviors
+  - Domain-specific unions (e.g., result_type in builder.chain_run_table)
+- Use schema.sql for cross-checking indexes, unique constraints, and FKs.
+
+For example:
+- auth.organization: unique on clerk_org_id and slug; multiple optional social fields; clerk_data JSONB.
+- auth.user: unique on clerk_user_id; optional primary_organization_id FK; clerk_data JSONB.
+- builder.chain_run_table: typed JSONB fields (inputs, context_inputs, result); index on cache_key.
 
 ## JSONB and Effect Schema
 
