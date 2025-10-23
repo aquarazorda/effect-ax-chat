@@ -110,6 +110,11 @@ export type CategoryWithEntityTypeId =
 export const CustomViewIdSchema = S.String.pipe(S.brand("CustomViewId"));
 export type CustomViewId = typeof CustomViewIdSchema.Type;
 
+export const OrganizationUserIdSchema = S.String.pipe(
+  S.brand("OrganizationUserId"),
+);
+export type OrganizationUserId = typeof OrganizationUserIdSchema.Type;
+
 export const CRMCacheIdSchema = S.String.pipe(S.brand("CRMCacheId"));
 export type CRMCacheId = typeof CRMCacheIdSchema.Type;
 
@@ -188,3 +193,8 @@ export const DerivedRelationComputationIdSchema = S.String.pipe(
 );
 export type DerivedRelationComputationId =
   typeof DerivedRelationComputationIdSchema.Type;
+
+export const EntityRelationUUIDSchema = S.String.pipe(
+  S.brand("EntityRelationUUID"),
+);
+export type EntityRelationUUID = typeof EntityRelationUUIDSchema.Type;

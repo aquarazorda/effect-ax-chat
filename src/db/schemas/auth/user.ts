@@ -6,11 +6,12 @@ import {
   timestamp,
 } from "drizzle-orm/pg-core";
 import { auth } from "../creators";
+import type { OrganizationId, UserId } from "../../ids";
 
 export const user = auth(
   "user",
   {
-    id: varchar("id").notNull().primaryKey(),
+    id: varchar("id").$type<UserId>().notNull().primaryKey(),
     created_at: timestamp("created_at", { withTimezone: true }).defaultNow(),
     updated_at: timestamp("updated_at", { withTimezone: true }).defaultNow(),
     clerk_user_id: varchar("clerk_user_id").notNull(),
@@ -19,7 +20,9 @@ export const user = auth(
     last_name: text("last_name"),
     image_url: text("image_url"),
     email_address: text("email_address"),
-    primary_organization_id: varchar("primary_organization_id"),
+    primary_organization_id: varchar(
+      "primary_organization_id",
+    ).$type<OrganizationId>(),
   },
   (t) => [uniqueIndex("user_clerk_user_id_key").on(t.clerk_user_id)],
 );

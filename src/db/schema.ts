@@ -1,6 +1,10 @@
 export { organization } from "./schemas/auth/organization";
 export { user } from "./schemas/auth/user";
 export { user_preferences } from "./schemas/auth/userPreferences";
+export { inbox_connection } from "./schemas/auth/inboxConnection";
+export { inbox_connection_sync_job } from "./schemas/auth/inboxConnectionSyncJob";
+export { organization_user } from "./schemas/auth/organizationUser";
+export { organization_user_entity_id } from "./schemas/auth/organizationUserEntityId";
 
 export { chain_run_table } from "./schemas/builder/chainRunTable";
 export { application_group } from "./schemas/builder/applicationGroup";
@@ -54,10 +58,38 @@ export { workspace_version_action_version } from "./schemas/builder/workspaceVer
 export { workspace_version_entity_type_version } from "./schemas/builder/workspaceVersionEntityTypeVersion";
 export { workspace_version_relation_version } from "./schemas/builder/workspaceVersionRelationVersion";
 export { workspace_version_state_machine_metadata_version } from "./schemas/builder/workspaceVersionStateMachineMetadataVersion";
+export { fake_ai_columns_computation_table } from "./schemas/builder/fakeAiColumnsComputationTable";
+export { fake_ai_relations_computation_table } from "./schemas/builder/fakeAiRelationsComputationTable";
+export { fake_data_entity_type_retrieval_pointer } from "./schemas/builder/fakeDataEntityTypeRetrievalPointer";
+export { fake_m2m_table } from "./schemas/builder/fakeM2mTable";
+
+// billing_tracking
+export { billing_event_queue } from "./schemas/billing_tracking/billingEventQueue";
+export { customer } from "./schemas/billing_tracking/customer";
+export { invoice } from "./schemas/billing_tracking/invoice";
+export { organization_subscription } from "./schemas/billing_tracking/organizationSubscription";
+export { usage_metrics } from "./schemas/billing_tracking/usageMetrics";
+
+// marketing
+export { blog_posts } from "./schemas/marketing/blogPosts";
+export { homepage_generation } from "./schemas/marketing/homepageGeneration";
+export { homepage_generation_share } from "./schemas/marketing/homepageGenerationShare";
+export { homepage_generation_share_view } from "./schemas/marketing/homepageGenerationShareView";
+export { industry } from "./schemas/marketing/industry";
+export { landing_page } from "./schemas/marketing/landingPage";
+export { vertical } from "./schemas/marketing/vertical";
+
+// public
+export { kysely_migration } from "./schemas/public/kyselyMigration";
+export { kysely_migration_lock } from "./schemas/public/kyselyMigrationLock";
 
 import { organization } from "./schemas/auth/organization";
 import { user } from "./schemas/auth/user";
 import { user_preferences } from "./schemas/auth/userPreferences";
+import { inbox_connection } from "./schemas/auth/inboxConnection";
+import { inbox_connection_sync_job } from "./schemas/auth/inboxConnectionSyncJob";
+import { organization_user } from "./schemas/auth/organizationUser";
+import { organization_user_entity_id } from "./schemas/auth/organizationUserEntityId";
 import { chain_run_table } from "./schemas/builder/chainRunTable";
 import { application_group } from "./schemas/builder/applicationGroup";
 import { automation_rule } from "./schemas/builder/automationRule";
@@ -110,16 +142,45 @@ import { workspace_version_action_version } from "./schemas/builder/workspaceVer
 import { workspace_version_entity_type_version } from "./schemas/builder/workspaceVersionEntityTypeVersion";
 import { workspace_version_relation_version } from "./schemas/builder/workspaceVersionRelationVersion";
 import { workspace_version_state_machine_metadata_version } from "./schemas/builder/workspaceVersionStateMachineMetadataVersion";
+import { fake_ai_columns_computation_table } from "./schemas/builder/fakeAiColumnsComputationTable";
+import { fake_ai_relations_computation_table } from "./schemas/builder/fakeAiRelationsComputationTable";
+import { fake_data_entity_type_retrieval_pointer } from "./schemas/builder/fakeDataEntityTypeRetrievalPointer";
+import { fake_m2m_table } from "./schemas/builder/fakeM2mTable";
+
+import { billing_event_queue } from "./schemas/billing_tracking/billingEventQueue";
+import { customer } from "./schemas/billing_tracking/customer";
+import { invoice } from "./schemas/billing_tracking/invoice";
+import { organization_subscription } from "./schemas/billing_tracking/organizationSubscription";
+import { usage_metrics } from "./schemas/billing_tracking/usageMetrics";
+
+import { blog_posts } from "./schemas/marketing/blogPosts";
+import { homepage_generation } from "./schemas/marketing/homepageGeneration";
+import { homepage_generation_share } from "./schemas/marketing/homepageGenerationShare";
+import { homepage_generation_share_view } from "./schemas/marketing/homepageGenerationShareView";
+import { industry } from "./schemas/marketing/industry";
+import { landing_page } from "./schemas/marketing/landingPage";
+import { vertical } from "./schemas/marketing/vertical";
+
+import { kysely_migration } from "./schemas/public/kyselyMigration";
+import { kysely_migration_lock } from "./schemas/public/kyselyMigrationLock";
 
 export const dbSchema = {
   organization,
   user,
   user_preferences,
+  inbox_connection,
+  inbox_connection_sync_job,
+  organization_user,
+  organization_user_entity_id,
   chain_run_table,
   application_group,
   automation_rule,
   email,
   gmail_message_processing_queue,
+  fake_ai_columns_computation_table,
+  fake_ai_relations_computation_table,
+  fake_data_entity_type_retrieval_pointer,
+  fake_m2m_table,
   action_draft_email_extracted_input,
   action_edits_history,
   action_log,
@@ -167,4 +228,21 @@ export const dbSchema = {
   workspace_version_entity_type_version,
   workspace_version_relation_version,
   workspace_version_state_machine_metadata_version,
+  // billing_tracking
+  billing_event_queue,
+  customer,
+  invoice,
+  organization_subscription,
+  usage_metrics,
+  // marketing
+  blog_posts,
+  homepage_generation,
+  homepage_generation_share,
+  homepage_generation_share_view,
+  industry,
+  landing_page,
+  vertical,
+  // public (kysely)
+  kysely_migration,
+  kysely_migration_lock,
 };

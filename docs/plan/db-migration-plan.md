@@ -25,7 +25,7 @@ Reference proposal: docs/proposals/database-rewrite-drizzle.md
 
 ## Conventions
 
-- Brand all identifier columns with Effect Schema and Drizzle `$type`:
+- Brand all identifier columns (builder and auth) with Effect Schema and Drizzle `$type`:
   - Define branded ID schemas in `src/db/ids.ts` (e.g., `ActionIdSchema`, `EntityTypeIdSchema`).
   - Use `$type<BrandedId>()` on Drizzle columns (e.g., `varchar('action_id').$type<ActionId>()`).
   - Prefer specific per-entity brands (e.g., `ActionVersionId`, `RelationVersionId`, `WorkspaceVersionId`) over generic `string`.
@@ -62,21 +62,21 @@ Progress (77 tables)
 
 Auth
 
-- [ ] auth.inbox_connection
-- [ ] auth.inbox_connection_sync_job
+- [x] auth.inbox_connection
+- [x] auth.inbox_connection_sync_job
 - [x] auth.organization (add unique on clerk_org_id, slug)
-- [ ] auth.organization_user
-- [ ] auth.organization_user_entity_id
+- [x] auth.organization_user
+- [x] auth.organization_user_entity_id
 - [x] auth."user" (add unique on clerk_user_id; FK to organization optional)
 - [x] auth.user_preferences
 
 Billing Tracking
 
-- [ ] billing_tracking.billing_event_queue
-- [ ] billing_tracking.customer
-- [ ] billing_tracking.invoice
-- [ ] billing_tracking.organization_subscription
-- [ ] billing_tracking.usage_metrics
+- [x] billing_tracking.billing_event_queue
+- [x] billing_tracking.customer
+- [x] billing_tracking.invoice
+- [x] billing_tracking.organization_subscription
+- [x] billing_tracking.usage_metrics
 
 Builder
 
@@ -114,10 +114,10 @@ Builder
 - [x] builder.entity_comment
 - [x] builder.entity_enrichment_processing
 - [x] builder.entity_type_edits_history
-- [ ] builder.fake_ai_columns_computation_table
-- [ ] builder.fake_ai_relations_computation_table
-- [ ] builder.fake_data_entity_type_retrieval_pointer
-- [ ] builder.fake_m2m_table
+- [x] builder.fake_ai_columns_computation_table
+- [x] builder.fake_ai_relations_computation_table
+- [x] builder.fake_data_entity_type_retrieval_pointer
+- [x] builder.fake_m2m_table
 - [x] builder.feature_application_run
 - [x] builder.feature_application_run_features
 - [x] builder.feature_suggestions_run
@@ -139,18 +139,18 @@ Builder
 
 Marketing
 
-- [ ] marketing.blog_posts
-- [ ] marketing.homepage_generation
-- [ ] marketing.homepage_generation_share
-- [ ] marketing.homepage_generation_share_view
-- [ ] marketing.industry
-- [ ] marketing.landing_page
-- [ ] marketing.vertical
+- [x] marketing.blog_posts
+- [x] marketing.homepage_generation
+- [x] marketing.homepage_generation_share
+- [x] marketing.homepage_generation_share_view
+- [x] marketing.industry
+- [x] marketing.landing_page
+- [x] marketing.vertical
 
 Public (migrations)
 
-- [ ] public.kysely_migration
-- [ ] public.kysely_migration_lock
+- [x] public.kysely_migration
+- [x] public.kysely_migration_lock
 
 ## Workstream D — Schema Mapping (Org DBs)
 
@@ -185,8 +185,8 @@ Public (migrations)
 ## Status Summary
 
 - Total builder tables: 77
-- Completed: 0
+- Completed: 77
 - In progress: 0
-- Remaining: 77
+- Remaining: 0
 
 Update this section as work lands. Each checklist item above should be checked when the Drizzle table definition is added and validated with at least a select query.

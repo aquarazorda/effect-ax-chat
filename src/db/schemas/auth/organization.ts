@@ -1,10 +1,11 @@
 import { jsonb, text, uniqueIndex, varchar } from "drizzle-orm/pg-core";
 import { auth } from "../creators";
+import type { OrganizationId } from "../../ids";
 
 export const organization = auth(
   "organization",
   {
-    id: varchar("id").notNull().primaryKey(),
+    id: varchar("id").$type<OrganizationId>().notNull().primaryKey(),
     clerk_org_id: varchar("clerk_org_id").notNull(),
     name: varchar("name").notNull(),
     slug: varchar("slug").notNull(),

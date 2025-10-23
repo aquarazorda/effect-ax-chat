@@ -13,6 +13,8 @@ import { eq } from "drizzle-orm";
 import { createDecipheriv } from "crypto";
 import { AppEnvTag } from "../env";
 import type { AppEnv } from "../env";
+import * as S from "effect/Schema";
+import { OrganizationIdSchema } from "./ids";
 
 /**
  * Placeholder creator for a Drizzle DB handle.
@@ -83,11 +85,13 @@ export const makeOrgDbResolverLayer: Layer.Layer<
             const cached = cache.get(organizationId);
             if (cached !== undefined) return cached;
           }
+          const orgIdBranded =
+            S.decodeUnknownSync(OrganizationIdSchema)(organizationId);
 
           const rows = await builderDb
             .select()
             .from(dbSchema.organization)
-            .where(eq(dbSchema.organization.id, organizationId))
+            .where(eq(dbSchema.organization.id, orgIdBranded))
             .limit(1);
           const org = rows[0];
           if (!org) {
