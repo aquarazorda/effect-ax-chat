@@ -159,8 +159,12 @@ Public (migrations)
 
 ## Workstream E — JSONB + Effect Schema
 
-- [ ] Identify JSONB columns per table and define Effect Schemas (e.g., clerk_data, inputs/result for chain runs, email metadata).
-- [ ] Implement repository helpers that decode on read and encode on write.
+- [x] Identify JSONB columns per table and define Effect Schemas for core paths:
+  - auth.user.clerk_data, auth.organization.clerk_data
+  - builder.chain_run_table.inputs/context_inputs/result
+  - builder.automation_rule.trigger_config
+  - builder.email.sent_to/sent_cc/sent_bcc/email_data
+- [x] Implement helpers to validate/decode at boundaries (`src/db/jsonbSchemas.ts`, `src/db/jsonbCodecs.ts`).
 - [ ] Add property tests for encoders/decoders for stability.
 
 ## Workstream F — Validation and Testing
