@@ -6,6 +6,7 @@
     "typecheck": "tsc --noEmit",
     "format": "prettier --write .",
     "example:telegram": "bun run src/app/examples/telegram-echo.ts",
+    "example:telegram-max": "bun run src/app/examples/telegram-max.ts",
     "db:introspect": "drizzle-kit introspect --config=drizzle.config.ts",
     "db:generate": "drizzle-kit generate --config=drizzle.config.ts",
     "db:migrate": "drizzle-kit migrate --config=drizzle.config.ts",

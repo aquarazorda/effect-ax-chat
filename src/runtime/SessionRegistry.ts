@@ -32,9 +32,10 @@ export class SessionRegistryTag extends Context.Tag(
 
 const keyOf = (k: typeof UserKeySchema.Type): string => `${k.platform}:${k.id}`;
 
-export const makeSessionRegistryLayer = <E>(
+export const makeSessionRegistryLayer = <R, E>(
   config: SessionRegistryConfig,
-  makeAgent: AgentFactory<never, E>,
+  makeAgent: AgentFactory<R, E>,
+  agentLayer: Layer.Layer<R>,
 ): Layer.Layer<
   SessionRegistryTag,
   never,
@@ -86,7 +87,7 @@ export const makeSessionRegistryLayer = <E>(
               }),
               Effect.tap((m) => Effect.logInfo("handle", m.text)),
               Effect.withLogSpan("session.handle"),
-              Effect.flatMap(handle),
+              Effect.flatMap((m) => handle(m).pipe(Effect.provide(agentLayer))),
             ),
           );
 

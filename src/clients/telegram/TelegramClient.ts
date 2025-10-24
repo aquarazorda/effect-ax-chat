@@ -1,7 +1,11 @@
 import { Effect, Layer, Queue, Runtime, Stream } from "effect";
 import { Telegraf, type Context } from "telegraf";
 import { message } from "telegraf/filters";
-import type { Update } from "telegraf/types";
+import type {
+  Update,
+  ReplyKeyboardMarkup,
+  InlineKeyboardMarkup,
+} from "telegraf/types";
 import {
   type ChatClient,
   ChatClientTag,
@@ -43,6 +47,20 @@ const parseIncomingMessage = (
   };
 };
 
+const isReplyKeyboardMarkup = (v: unknown): v is ReplyKeyboardMarkup => {
+  if (!v || typeof v !== "object") return false;
+  const o = v as Record<string, unknown>;
+  if (!Array.isArray(o["keyboard"])) return false;
+  // minimal structural check
+  return true;
+};
+
+const isInlineKeyboardMarkup = (v: unknown): v is InlineKeyboardMarkup => {
+  if (!v || typeof v !== "object") return false;
+  const o = v as Record<string, unknown>;
+  return Array.isArray(o["inline_keyboard"]);
+};
+
 export const makeTelegramClientLayer = (
   config: TelegramClientConfig,
 ): Layer.Layer<ChatClientTag> =>
@@ -56,21 +74,25 @@ export const makeTelegramClientLayer = (
 
       type SendMessageExtra = Parameters<typeof bot.telegram.sendMessage>[2];
 
-      const buildReplyOptions = (
+      const buildSendOptions = (
         replyTo: string | undefined,
-      ): SendMessageExtra => {
-        if (replyTo === undefined) {
-          return undefined;
+        meta: Readonly<Record<string, unknown>> | undefined,
+      ): SendMessageExtra | undefined => {
+        let opts: SendMessageExtra | undefined = undefined;
+        if (replyTo !== undefined) {
+          const numericId = Number(replyTo);
+          if (Number.isInteger(numericId)) {
+            opts = {
+              ...(opts ?? {}),
+              reply_parameters: { message_id: numericId },
+            };
+          }
         }
-        const numericId = Number(replyTo);
-        if (!Number.isInteger(numericId)) {
-          return undefined;
+        const rm = meta && (meta["telegramReplyMarkup"] as unknown);
+        if (rm && (isReplyKeyboardMarkup(rm) || isInlineKeyboardMarkup(rm))) {
+          opts = { ...(opts ?? {}), reply_markup: rm };
         }
-        return {
-          reply_parameters: {
-            message_id: numericId,
-          },
-        } satisfies SendMessageExtra;
+        return opts;
       };
 
       bot.catch((err) => {
@@ -138,6 +160,36 @@ export const makeTelegramClientLayer = (
         }
       });
 
+      // Handle contact shares to capture phone number
+      bot.on(message("contact"), (ctx) => {
+        const msg = ctx.message;
+        if (!msg || !("contact" in msg) || !msg.contact) return;
+        const chatId = msg.chat.id.toString();
+        const senderId =
+          msg.from?.id !== undefined ? msg.from.id.toString() : chatId;
+        const phone = msg.contact.phone_number;
+        const first = msg.contact.first_name;
+        const incoming: IncomingMessage = {
+          chatId,
+          senderId,
+          text: "[contact shared]",
+          receivedAt: new Date(msg.date * 1000),
+          metadata: {
+            messageId: msg.message_id,
+            phoneNumber: phone,
+            contactFirstName: first,
+          },
+        };
+        // enqueue
+        queue.unsafeOffer(incoming);
+        Runtime.runFork(
+          runtime,
+          Effect.logInfo("incoming contact", phone).pipe(
+            Effect.annotateLogs({ component: "Telegram", chatId, senderId }),
+          ),
+        );
+      });
+
       const connect = Effect.tryPromise({
         try: async () => {
           if (launched) {
@@ -170,7 +222,7 @@ export const makeTelegramClientLayer = (
             const res = await bot.telegram.sendMessage(
               message.chatId,
               message.text,
-              buildReplyOptions(message.replyToMessageId),
+              buildSendOptions(message.replyToMessageId, message.metadata),
             );
             return res;
           },

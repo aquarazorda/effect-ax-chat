@@ -8,7 +8,19 @@ export const AppEnvSchema = S.Struct({
   DATABASE_URL: S.String,
 
   // Optional: telegram token for chat transport
-  TELEGRAM_TOKEN: S.optional(S.String),
+  TELEGRAM_TOKEN: S.String,
+
+  // Demo helpers for Max agent
+  DEMO_ORG_ID: S.String,
+  DEMO_VERSION_TYPE: S.Union(S.Literal("dev"), S.Literal("prod")),
+  DEMO_TRUST_MODE: S.optional(S.String), // "true"|"false" (parsed at use-site)
+
+  // LLM provider keys (optional; choose one)
+  OPENAI_API_KEY: S.String,
+
+  // Demo configuration for People lookups
+  DEMO_PEOPLE_ENTITY_TYPE_ID: S.optional(S.String),
+  DEMO_PHONE_COLUMN_ID: S.optional(S.String),
 
   // Optional: used for decrypting per‑org connection strings
   DATABASE_ENCRYPTION_KEY_B64: S.optional(S.String),
@@ -28,11 +40,23 @@ export class AppEnvTag extends Context.Tag("effect-ax/AppEnv")<
 // Parse Bun.env with Effect Schema; fails if required vars are missing.
 const parseEnv = S.decodeUnknown(AppEnvSchema);
 
+const normalizeVersionType = (v: string | undefined): string | undefined => {
+  if (v === "published") return "prod";
+  if (v === "draft") return "dev";
+  return v;
+};
+
 export const makeEnvLayer: Layer.Layer<AppEnvTag> = Layer.effect(
   AppEnvTag,
   parseEnv({
     DATABASE_URL: Bun.env.DATABASE_URL,
     TELEGRAM_TOKEN: Bun.env.TELEGRAM_TOKEN,
+    DEMO_ORG_ID: Bun.env.DEMO_ORG_ID,
+    DEMO_VERSION_TYPE: normalizeVersionType(Bun.env.DEMO_VERSION_TYPE),
+    DEMO_TRUST_MODE: Bun.env.DEMO_TRUST_MODE,
+    OPENAI_API_KEY: Bun.env.OPENAI_API_KEY,
+    DEMO_PEOPLE_ENTITY_TYPE_ID: Bun.env.DEMO_PEOPLE_ENTITY_TYPE_ID,
+    DEMO_PHONE_COLUMN_ID: Bun.env.DEMO_PHONE_COLUMN_ID,
     DATABASE_ENCRYPTION_KEY_B64: Bun.env.DATABASE_ENCRYPTION_KEY_B64,
     DATABASE_ENCRYPTION_IV_LENGTH: Bun.env.DATABASE_ENCRYPTION_IV_LENGTH,
     DB_DRIVER: Bun.env.DB_DRIVER,

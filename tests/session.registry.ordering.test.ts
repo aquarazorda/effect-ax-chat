@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { Effect, Layer, Queue, Stream } from "effect";
+import { Effect, Layer, Queue, Stream, Context } from "effect";
 import {
   ChatClientTag,
   type ChatClient,
@@ -44,6 +44,7 @@ test.todo(
               getUserKey: (m) => ({ platform: "test", id: m.senderId }),
             },
             makeEchoAgent,
+            Layer.succeedContext(Context.empty()),
           ),
         );
         // run the rest with only SessionRegistryTag required

@@ -57,6 +57,7 @@ Known Exceptions
 ## Module Structure Guidelines
 
 - Avoid barrel files (index.ts that re-export entire folders). Import only what you need from concrete modules so tree‑shaking remains effective and bundle size stays minimal.
+- Place all imports at the top of the file. Do not add imports inside functions or mid‑file; prefer static ESM imports at module scope and keep side‑effect imports explicit.
 
 ## Environment Configuration
 

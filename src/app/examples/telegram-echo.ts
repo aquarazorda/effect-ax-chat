@@ -1,4 +1,4 @@
-import { Effect, Layer, Logger, LogLevel, Stream } from "effect";
+import { Effect, Layer, Logger, LogLevel, Stream, Context } from "effect";
 import { AppEnvTag, makeEnvLayer } from "../../env";
 import { makeTelegramClientLayer } from "../../clients/telegram/TelegramClient";
 import { makeInMemoryMailboxFactoryLayer } from "../../runtime/Mailbox";
@@ -35,6 +35,7 @@ const program = Effect.gen(function* () {
       getUserKey: (m) => ({ platform: "telegram", id: m.senderId }),
     },
     makeEchoAgent,
+    Layer.succeedContext(Context.empty()),
   );
 
   // Provide registry's dependencies explicitly, then expose ChatHandler

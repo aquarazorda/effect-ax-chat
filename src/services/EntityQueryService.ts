@@ -44,7 +44,9 @@ export const QueryConfigSchema = S.Struct({
 });
 export type QueryConfig = typeof QueryConfigSchema.Type;
 
-export type Subject = { readonly type: "read"; readonly userId?: UserId };
+export type Subject =
+  | { readonly type: "read"; readonly userId?: UserId }
+  | { readonly type: "system" };
 
 export interface QueryEntitiesResultEntity {
   readonly entityId: string;

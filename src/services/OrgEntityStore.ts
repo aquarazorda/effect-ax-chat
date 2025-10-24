@@ -64,6 +64,22 @@ export interface OrgEntityStore {
     DbError,
     OrgDbResolverTag | BuilderDbTag
   >;
+
+  /**
+   * Find a single entity id by exact match on a column value.
+   * Intended for simple lookups like phone/email on People.
+   */
+  readonly findByColumnEquals: (args: {
+    readonly organizationId: OrganizationId;
+    readonly versionType: VersionType;
+    readonly targetEntityTypeId: EntityTypeId;
+    readonly columnId: ColumnId;
+    readonly value: string;
+  }) => Effect.Effect<
+    string | undefined,
+    DbError,
+    OrgDbResolverTag | BuilderDbTag
+  >;
 }
 
 export class OrgEntityStoreTag extends Context.Tag("effect-ax/OrgEntityStore")<
@@ -75,6 +91,8 @@ export class OrgEntityStoreTag extends Context.Tag("effect-ax/OrgEntityStore")<
 export const makeOrgEntityStore = (): OrgEntityStore => {
   const safeLiteral = (s: string): string | undefined =>
     /^[A-Za-z0-9_:\-]+$/.test(s) ? s : undefined;
+  const safePhoneLiteral = (s: string): string | undefined =>
+    /^[+0-9()\-\s]+$/.test(s) ? s : undefined;
   // Resolve workspace-bound version ids
   const resolveEntityTypeVersionId = (
     db: BuilderDatabase,
@@ -905,7 +923,54 @@ WHERE s.depth = ${stepVersions.length}`;
       }),
     );
 
-  return { queryByOneHopFilter, queryByMultiHopFilter, queryAllOfType };
+  const findByColumnEquals: OrgEntityStore["findByColumnEquals"] = ({
+    organizationId,
+    versionType,
+    targetEntityTypeId,
+    columnId,
+    value,
+  }) =>
+    Effect.gen(function* () {
+      const builderDb: BuilderDatabase = yield* BuilderDbTag;
+      const targetEntityTypeVersionId = yield* resolveEntityTypeVersionId(
+        builderDb,
+        organizationId,
+        versionType,
+        targetEntityTypeId,
+      );
+      if (!targetEntityTypeVersionId) return undefined;
+
+      const entTable = entityTableName(versionType, targetEntityTypeVersionId);
+      const col = columnSqlName(columnId);
+      const resolver = yield* OrgDbResolverTag;
+      const orgDb = yield* resolver.get(organizationId);
+      const safeVal = safePhoneLiteral(value);
+      if (!safeVal) return undefined;
+      const q = `SELECT e.${META.ENTITY_ID} as entity_id
+                 FROM ${entTable} as e
+                 WHERE e.${col} = '${safeVal}' AND e.${META.IS_DELETED} = false
+                 LIMIT 1`;
+      const res = yield* Effect.tryPromise({
+        try: () => orgDb.execute(sql.raw(q)),
+        catch: (cause) => makeDbError("Org findByColumnEquals failed", cause),
+      });
+      const RowsSchema = S.Struct({
+        rows: S.Array(S.Struct({ entity_id: S.String })),
+      });
+      const decoded = S.decodeUnknownSync(RowsSchema)(res);
+      return decoded.rows[0]?.entity_id;
+    }).pipe(
+      Effect.withSpan("OrgEntityStore.findByColumnEquals", {
+        attributes: { orgId: organizationId, versionType, targetEntityTypeId },
+      }),
+    );
+
+  return {
+    queryByOneHopFilter,
+    queryByMultiHopFilter,
+    queryAllOfType,
+    findByColumnEquals,
+  };
 };
 
 export const makeOrgEntityStoreLayer: Layer.Layer<OrgEntityStoreTag> =
