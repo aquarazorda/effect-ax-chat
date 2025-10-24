@@ -123,8 +123,10 @@ export const makeEntityTypeCatalog = (): EntityTypeCatalog => {
           .limit(1000),
       );
 
-      // Deduplicate preferring system rows first (so system types appear at the top)
-      const seen = new Set<string>();
+      // Deduplicate by human name (name + plural), preferring later pushes.
+      // We push system rows first (sorted by workspace version desc), then mapped rows,
+      // so the latest for each semantic name wins and only appears once.
+      const seenByName = new Set<string>();
       const base: CatalogEntityType[] = [];
       const pushRow = (r: {
         entity_type_id: unknown;
@@ -133,9 +135,9 @@ export const makeEntityTypeCatalog = (): EntityTypeCatalog => {
         plural_name: string;
         description: string | null;
       }) => {
-        const key = S.decodeUnknownSync(S.String)(r.entity_type_id);
-        if (seen.has(key)) return;
-        seen.add(key);
+        const nameKey = `${r.name.toLowerCase()}|${r.plural_name.toLowerCase()}`;
+        if (seenByName.has(nameKey)) return;
+        seenByName.add(nameKey);
         base.push({
           id: S.decodeUnknownSync(EntityTypeIdSchema)(r.entity_type_id),
           versionId: S.decodeUnknownSync(EntityTypeVersionIdSchema)(
@@ -169,7 +171,11 @@ export const makeEntityTypeCatalog = (): EntityTypeCatalog => {
           ),
         );
         const want = (n: string): boolean => {
-          if (!columnsFilter?.nameContains || columnsFilter.nameContains.length === 0) return true;
+          if (
+            !columnsFilter?.nameContains ||
+            columnsFilter.nameContains.length === 0
+          )
+            return true;
           const lower = n.toLowerCase();
           for (const frag of columnsFilter.nameContains) {
             if (lower.includes(frag.toLowerCase())) return true;
@@ -197,7 +203,10 @@ export const makeEntityTypeCatalog = (): EntityTypeCatalog => {
           const all = byVersionAll.get(r.versionId) ?? [];
           const picked = filtered.length > 0 ? filtered : all;
           const cap = columnsFilter?.max ?? picked.length;
-          const capped = picked.slice(0, Math.max(0, Math.min(cap, picked.length)));
+          const capped = picked.slice(
+            0,
+            Math.max(0, Math.min(cap, picked.length)),
+          );
           out.push({ ...r, columns: capped });
         }
         return out;

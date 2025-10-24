@@ -70,7 +70,8 @@ const program = Effect.gen(function* () {
         idleTtlMillis: 10 * 60_000,
         mailbox: { capacity: 1024, strategy: "bounded" },
       },
-      getUserKey: (m) => ({ platform: "telegram", id: m.senderId }),
+      // Preserve conversation per Telegram chat/thread
+      getUserKey: (m) => ({ platform: "telegram", id: m.chatId }),
     },
     makeMaxAgent,
     agentDeps,

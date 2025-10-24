@@ -172,7 +172,7 @@ export const makeTelegramClientLayer = (
         const incoming: IncomingMessage = {
           chatId,
           senderId,
-          text: "[contact shared]",
+          text: "First name: " + first + " Phone number: " + phone,
           receivedAt: new Date(msg.date * 1000),
           metadata: {
             messageId: msg.message_id,

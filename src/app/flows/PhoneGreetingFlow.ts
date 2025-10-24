@@ -107,7 +107,10 @@ export const runPhoneGreetingFlow = async (
             .listEntityTypes({
               organizationId: orgId,
               versionType,
-              columnsFilter: { nameContains: ["phone", "mobile", "cell"], max: 16 },
+              columnsFilter: {
+                nameContains: ["phone", "mobile", "cell"],
+                max: 16,
+              },
             })
             .pipe(Effect.catchAll(() => Effect.succeed([]))),
         ),

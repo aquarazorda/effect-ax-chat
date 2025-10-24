@@ -87,7 +87,15 @@ export const makeSessionRegistryLayer = <R, E>(
               }),
               Effect.tap((m) => Effect.logInfo("handle", m.text)),
               Effect.withLogSpan("session.handle"),
-              Effect.flatMap((m) => handle(m).pipe(Effect.provide(agentLayer))),
+              Effect.flatMap((m) =>
+                handle(m)
+                  .pipe(Effect.provide(agentLayer))
+                  .pipe(
+                    Effect.catchAll((e) =>
+                      Effect.logError("handler error", e).pipe(Effect.asVoid),
+                    ),
+                  ),
+              ),
             ),
           );
 

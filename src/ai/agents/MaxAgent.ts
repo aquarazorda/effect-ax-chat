@@ -1,6 +1,6 @@
 import { Effect, Runtime } from "effect";
 import * as S from "effect/Schema";
-import { ax, ai, type AxFunction } from "@ax-llm/ax";
+import { ax, ai, type AxFunction, AxMemory } from "@ax-llm/ax";
 import type { AgentFactory } from "../../runtime/Session";
 import { AppEnvTag } from "../../env";
 import type { AppEnv } from "../../env";
@@ -30,6 +30,17 @@ export const makeMaxAgent: AgentFactory<
   let phoneNumber: string | undefined = undefined;
   let anchorEntityId: string | undefined = undefined;
   let greeted = false;
+  // Per-session memory for LLM to avoid re-fetches and preserve function calls
+  const mem = new AxMemory();
+  // Lightweight cache of entity types for this session
+  let cachedTypes:
+    | ReadonlyArray<{
+        id: string;
+        name: string;
+        pluralName: string;
+        columns?: ReadonlyArray<{ id: string; name: string }>;
+      }>
+    | undefined;
 
   return (m) =>
     Effect.gen(function* () {
@@ -134,7 +145,11 @@ export const makeMaxAgent: AgentFactory<
           }),
         );
         try {
-          const llmForFlow = ai({ name: "openai", apiKey: env.OPENAI_API_KEY });
+          const llmForFlow = ai({
+            name: "openai",
+            model: "gpt-4o-mini",
+            apiKey: env.OPENAI_API_KEY,
+          });
           const result = yield* Effect.promise(() =>
             runPhoneGreetingFlow({ runtime }, llmForFlow, {
               organizationId:
@@ -209,9 +224,67 @@ export const makeMaxAgent: AgentFactory<
         };
       };
 
+      // Preselect a preferred People entity type to avoid LLM spraying calls
+      const candidateTypes = yield* Effect.promise(() =>
+        Runtime.runPromise(
+          runtime,
+          Effect.flatMap(EntityTypeCatalogTag, (c) =>
+            c
+              .listEntityTypes({
+                organizationId: S.decodeUnknownSync(OrganizationIdSchema)(
+                  env.DEMO_ORG_ID,
+                ),
+                versionType: "prod",
+                columnsFilter: {
+                  nameContains: ["full", "email", "phone"],
+                  max: 10,
+                },
+              })
+              .pipe(Effect.catchAll(() => Effect.succeed([]))),
+          ),
+        ),
+      );
+      const pickPeople = () => {
+        if (env.DEMO_PEOPLE_ENTITY_TYPE_ID)
+          return candidateTypes.find(
+            (t) => t.id === env.DEMO_PEOPLE_ENTITY_TYPE_ID,
+          )?.id;
+        const score = (t: { name: string; pluralName: string }) => {
+          const n = `${t.name} ${t.pluralName}`.toLowerCase();
+          if (n.includes("people")) return 4;
+          if (n.includes("person")) return 3;
+          if (n.includes("contact")) return 2;
+          return 0;
+        };
+        let best: string | undefined;
+        let bestScore = -1;
+        for (const t of candidateTypes) {
+          const s = score(t);
+          if (s > bestScore) {
+            best = t.id;
+            bestScore = s;
+          }
+        }
+        return best;
+      };
+      const preferredPeopleTypeId = pickPeople();
+
       const tools: AxFunction[] = [
-        makeListEntityTypesTool({ runtime, env, startTypingHeartbeat }),
-        makeFindEntitiesTool({ runtime, env, startTypingHeartbeat }),
+        makeListEntityTypesTool({
+          runtime,
+          env,
+          startTypingHeartbeat,
+          getCache: () => cachedTypes,
+          setCache: (rows) => {
+            cachedTypes = rows;
+          },
+        }),
+        makeFindEntitiesTool({
+          runtime,
+          env,
+          startTypingHeartbeat,
+          allowedEntityTypeId: preferredPeopleTypeId,
+        }),
       ];
 
       const program = ax("message:string -> reply:string, toolPlan?:string", {
@@ -224,13 +297,22 @@ export const makeMaxAgent: AgentFactory<
           "Speak plainly without technical jargon.",
           "Never mention internal terms like entity, id, column, table, or database.",
           "Be concise. Prefer short sentences and tight bullet points.",
+          "Call at most one tool per user question unless strictly necessary.",
+          "Use listEntityTypes once to discover ids and columns. Then call findEntities exactly once using the preferred People entity type.",
+          "Tool outputs are plain strings; do not expect JSON fields.",
+          "If a tool returns a line starting with 'ERROR: ', tell me what went wrong and suggest close column matches.",
           "If multiple matches: show a few names and ask me to choose.",
           "If none: say you didn’t find it and suggest a precise next step.",
           "If one: show the name and a brief status/date if relevant.",
           "Respect privacy; if restricted, say you don’t have access.",
         ].join(" "),
       );
-      const llm = ai({ name: "openai", apiKey: env.OPENAI_API_KEY });
+
+      const llm = ai({
+        name: "openai",
+        model: "gpt-4o-mini",
+        apiKey: env.OPENAI_API_KEY,
+      });
 
       let typingActive = true;
       const typingFiber = yield* Effect.forkDaemon(
@@ -251,8 +333,19 @@ export const makeMaxAgent: AgentFactory<
           }
         }),
       );
+      // Use a stable program id per session and attach memory so previous tool
+      // calls are in-context for the next turn.
+      // Use chat-scoped session id for Ax memory
+      program.setId(`max:telegram:${m.chatId}`);
       const out = yield* Effect.promise(() =>
-        program.forward(llm, { message: m.text }),
+        program.forward(
+          llm,
+          { message: m.text },
+          {
+            mem,
+            sessionId: m.chatId,
+          },
+        ),
       );
       typingActive = false;
       const reply = out.reply ?? "Done.";
@@ -272,6 +365,8 @@ export const makeMaxAgentBound =
   (deps: MaxAgentDeps): AgentFactory<never> =>
   (ctx) => {
     let phoneNumber: string | undefined = undefined;
+    // Per-session memory for chat continuity
+    const mem = new AxMemory();
     return (m) =>
       Effect.gen(function* () {
         const AGENT_NAME = "Max" as const;
@@ -364,8 +459,17 @@ export const makeMaxAgentBound =
           return;
         }
         const llm = ai({ name: "openai", apiKey: openaiKey });
+        // Scope memory per Telegram chat
+        program.setId(`max:telegram:${m.chatId}`);
         const out = yield* Effect.promise(() =>
-          program.forward(llm, { message: m.text }),
+          program.forward(
+            llm,
+            { message: m.text },
+            {
+              mem,
+              sessionId: m.chatId,
+            },
+          ),
         );
         const reply = out.reply ?? "Done.";
         yield* ctx.send({

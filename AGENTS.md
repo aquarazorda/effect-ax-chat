@@ -78,3 +78,9 @@ Known Exceptions
 
 - Read environment variables via `src/env.ts` (AppEnvTag + makeEnvLayer). Do not access `process.env` or `Bun.env` directly in application code.
 - Validate required envs with Effect Schema; fail fast on startup. Inject derived configs (e.g., DbConfigTag) via Layers.
+
+## Chat Sessions & Memory
+
+- Telegram sessions are keyed by `chatId` (not `senderId`) to preserve conversation continuity per chat/thread and avoid cross‑chat contamination.
+- Ax memory is attached via `AxMemory` and forwarded with `sessionId = chatId`; programs also call `setId("max:telegram:" + chatId)` for a stable, chat‑scoped id.
+- When adding new chat transports, choose a stable per‑thread key (e.g., Slack channel id) and pass it as the Ax `sessionId`.

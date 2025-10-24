@@ -16,6 +16,7 @@ import { dbSchema } from "../db/schema";
 import { and, desc, eq, or } from "drizzle-orm";
 import { sql } from "drizzle-orm";
 import * as S from "effect/Schema";
+import * as Option from "effect/Option";
 import {
   entityTableName,
   relationTableName,
@@ -328,8 +329,13 @@ export const makeOrgEntityStore = (): OrgEntityStore => {
         n.replace(/^col_/, "").endsWith(`_${targetBase}`),
       );
       if (anchored) return anchored;
-      // 3) conservative fallback: default naming for the id
-      return columnSqlName(columnId);
+      // No match: signal not-found instead of guessing to avoid invalid SQL
+      return yield* Effect.fail(
+        makeDbError(
+          `Column not found on table ${tableName} for columnId=${columnId}`,
+          new Error("column_not_found"),
+        ),
+      );
     });
 
   const resolveEntityTableName = (
@@ -1264,14 +1270,18 @@ WHERE s.depth = ${stepVersions.length}`;
         (!allowedColumns ||
           allowedColumns.size === 0 ||
           allowedColumns.has(ver.display_col))
-          ? yield* resolveColumnSqlName(orgDb, entTable, ver.display_col)
+          ? (yield* resolveColumnSqlName(orgDb, entTable, ver.display_col).pipe(
+              Effect.option,
+            )).pipe(Option.getOrUndefined)
           : undefined;
       const statusCol =
         ver?.status_col &&
         (!allowedColumns ||
           allowedColumns.size === 0 ||
           allowedColumns.has(ver.status_col))
-          ? yield* resolveColumnSqlName(orgDb, entTable, ver.status_col)
+          ? (yield* resolveColumnSqlName(orgDb, entTable, ver.status_col).pipe(
+              Effect.option,
+            )).pipe(Option.getOrUndefined)
           : undefined;
 
       // Resolve projection columns
@@ -1288,8 +1298,12 @@ WHERE s.depth = ${stepVersions.length}`;
             allowedColumns.size === 0 ||
             allowedColumns.has(col)
           ) {
-            const phys = yield* resolveColumnSqlName(orgDb, entTable, col);
-            extraCols.push(phys);
+            const physOpt = yield* resolveColumnSqlName(
+              orgDb,
+              entTable,
+              col,
+            ).pipe(Effect.option);
+            if (Option.isSome(physOpt)) extraCols.push(physOpt.value);
           }
         }
       } else if (allowedColumns && allowedColumns.size > 0) {
@@ -1299,8 +1313,12 @@ WHERE s.depth = ${stepVersions.length}`;
             (ver?.status_col && col === ver.status_col)
           )
             continue;
-          const phys = yield* resolveColumnSqlName(orgDb, entTable, col);
-          extraCols.push(phys);
+          const physOpt = yield* resolveColumnSqlName(
+            orgDb,
+            entTable,
+            col,
+          ).pipe(Effect.option);
+          if (Option.isSome(physOpt)) extraCols.push(physOpt.value);
         }
       }
       const jsonColumnsExpr =
@@ -1314,14 +1332,31 @@ WHERE s.depth = ${stepVersions.length}`;
 
       // Build WHERE conditions
       const conds: Array<ReturnType<typeof sql>> = [];
+      let badFilter = false;
       for (const f of filters) {
-        const phys = yield* resolveColumnSqlName(orgDb, entTable, f.columnId);
+        const physOpt = yield* resolveColumnSqlName(
+          orgDb,
+          entTable,
+          f.columnId,
+        ).pipe(Effect.option);
+        if (Option.isNone(physOpt)) {
+          badFilter = true;
+          break;
+        }
+        const phys = physOpt.value;
         if (f.op === "eq") {
           conds.push(sql`${sql.raw(`e.${phys}`)} = ${f.value}`);
         } else {
           const pattern = `%${f.value}%`;
           conds.push(sql`${sql.raw(`e.${phys}`)} ILIKE ${pattern}`);
         }
+      }
+      if (badFilter) {
+        return {
+          entities: [],
+          totalNumberEntities: 0,
+          totalNumberPages: 0,
+        } as const;
       }
 
       const limit = page.pageSize;

@@ -7,7 +7,11 @@ import { PermissionEngineTag } from "../../permissions/PermissionEngine";
 import { BuilderDbTag } from "../../db/tags";
 import { dbSchema } from "../../db/schema";
 import { and, eq, inArray } from "drizzle-orm";
-import { ColumnIdSchema, EntityTypeIdSchema, OrganizationIdSchema } from "../../db/ids";
+import {
+  ColumnIdSchema,
+  EntityTypeIdSchema,
+  OrganizationIdSchema,
+} from "../../db/ids";
 import { VersionTypeSchema } from "../../domain/version";
 import type { AppEnv } from "../../env";
 
@@ -15,12 +19,15 @@ export interface FindEntitiesToolDeps {
   readonly runtime: Runtime.Runtime<any>;
   readonly env: AppEnv;
   readonly startTypingHeartbeat: () => () => void;
+  readonly allowedEntityTypeId?: string;
 }
 
-export const makeFindEntitiesTool = (deps: FindEntitiesToolDeps): AxFunction => ({
+export const makeFindEntitiesTool = (
+  deps: FindEntitiesToolDeps,
+): AxFunction => ({
   name: "findEntities",
   description:
-    "Find entities by column filters with minimal fields and optional selected columns.",
+    "Find entities by column filters and return compact strings (display|email|entityId).",
   parameters: {
     type: "object",
     properties: {
@@ -80,6 +87,43 @@ export const makeFindEntitiesTool = (deps: FindEntitiesToolDeps): AxFunction => 
       selectColumns: S.optional(S.Array(S.String)),
     });
     const params = S.decodeUnknownSync(schema)(raw);
+    const effectiveTypeId = S.decodeUnknownSync(EntityTypeIdSchema)(
+      deps.allowedEntityTypeId ?? params.entityTypeId,
+    );
+
+    // Pre-validate requested columns against the type's actual columns to avoid DB errors
+    const typeColumns = await Runtime.runPromise(
+      deps.runtime,
+      Effect.flatMap(EntityTypeCatalogTag, (c) =>
+        c
+          .listColumns({
+            organizationId: S.decodeUnknownSync(OrganizationIdSchema)(
+              deps.env.DEMO_ORG_ID,
+            ),
+            versionType: "prod",
+            entityTypeId: effectiveTypeId,
+          })
+          .pipe(Effect.catchAll(() => Effect.succeed([]))),
+      ),
+    );
+    const allowedColIds = new Set(typeColumns.map((c) => c.id));
+    const invalidFilter = params.filters.find(
+      (f) => !allowedColIds.has(f.columnId),
+    );
+    const invalidSelect = (params.selectColumns ?? []).find(
+      (c) => !allowedColIds.has(c),
+    );
+    if (invalidFilter || invalidSelect) {
+      const bad = invalidFilter?.columnId ?? invalidSelect;
+      const allowedPreview = typeColumns
+        .slice(0, 12)
+        .map((c) => `${c.name}=${c.id}`)
+        .join(", ");
+      stopTyping();
+      return [
+        `ERROR: unknown columnId ${bad} for entityType ${effectiveTypeId}. Allowed: ${allowedPreview}`,
+      ];
+    }
     const planOk = await Runtime.runPromise(
       deps.runtime,
       Effect.flatMap(PermissionEngineTag, (e) =>
@@ -89,11 +133,13 @@ export const makeFindEntitiesTool = (deps: FindEntitiesToolDeps): AxFunction => 
               deps.env.DEMO_ORG_ID,
             ),
             versionType: S.decodeUnknownSync(VersionTypeSchema)("prod"),
-            entityTypeId: params.entityTypeId,
+            entityTypeId: effectiveTypeId,
             subject: { type: "read" },
           })
           .pipe(Effect.map((p) => ({ _tag: "ok" as const, plan: p })))
-          .pipe(Effect.catchAll(() => Effect.succeed({ _tag: "err" as const }))),
+          .pipe(
+            Effect.catchAll(() => Effect.succeed({ _tag: "err" as const })),
+          ),
       ),
     );
     if (planOk._tag === "err") return { total: 0, entities: [] } as const;
@@ -116,12 +162,15 @@ export const makeFindEntitiesTool = (deps: FindEntitiesToolDeps): AxFunction => 
             })
             .pipe(Effect.catchAll(() => Effect.succeed([]))),
         );
-        const t = types.find((x) => x.id === params.entityTypeId);
+        const t = types.find((x) => x.id === effectiveTypeId);
         if (!t) return new Set<typeof ColumnIdSchema.Type>();
         const db = yield* BuilderDbTag;
         const rows = (yield* Effect.tryPromise(() =>
           db
-            .select({ id: dbSchema.field_group.id, fields: dbSchema.field_group.fields })
+            .select({
+              id: dbSchema.field_group.id,
+              fields: dbSchema.field_group.fields,
+            })
             .from(dbSchema.field_group)
             .where(
               and(
@@ -140,8 +189,13 @@ export const makeFindEntitiesTool = (deps: FindEntitiesToolDeps): AxFunction => 
         const visit = (node: unknown): void => {
           if (Array.isArray(node)) return node.forEach(visit);
           if (node && typeof node === "object") {
-            for (const [k, v] of Object.entries(node as Record<string, unknown>)) {
-              if ((k === "column_id" || k === "columnId") && typeof v === "string") {
+            for (const [k, v] of Object.entries(
+              node as Record<string, unknown>,
+            )) {
+              if (
+                (k === "column_id" || k === "columnId") &&
+                typeof v === "string"
+              ) {
                 try {
                   res.add(S.decodeUnknownSync(ColumnIdSchema)(v));
                 } catch {}
@@ -168,32 +222,39 @@ export const makeFindEntitiesTool = (deps: FindEntitiesToolDeps): AxFunction => 
       Effect.flatMap(OrgEntityStoreTag, (s) =>
         s
           .findEntities({
-            organizationId: S.decodeUnknownSync(OrganizationIdSchema)(deps.env.DEMO_ORG_ID),
+            organizationId: S.decodeUnknownSync(OrganizationIdSchema)(
+              deps.env.DEMO_ORG_ID,
+            ),
             versionType: S.decodeUnknownSync(VersionTypeSchema)("prod"),
-            targetEntityTypeId: params.entityTypeId,
+            targetEntityTypeId: effectiveTypeId,
             filters: params.filters,
-            config: { countsOnly: false, cursorEntityId: params.cursorEntityId, order: "asc" },
+            config: {
+              countsOnly: false,
+              cursorEntityId: params.cursorEntityId,
+              order: "asc",
+            },
             allowedColumns: allowedSet,
             projectColumns: proj.size > 0 ? proj : undefined,
             page: { pageNumber: 0, pageSize: limit },
           })
           .pipe(
             Effect.catchAll(() =>
-              Effect.succeed({ entities: [], totalNumberEntities: 0, totalNumberPages: 0 }),
+              Effect.succeed({
+                entities: [],
+                totalNumberEntities: 0,
+                totalNumberPages: 0,
+              }),
             ),
           ),
       ),
     );
-    const nextCursorEntityId = result.entities.length
-      ? result.entities[result.entities.length - 1]!.entityId
-      : undefined;
-    const out = {
-      total: result.totalNumberEntities,
-      entities: result.entities,
-      nextCursorEntityId,
-    } as const;
+    const out = result.entities.map((e) => {
+      const email =
+        (e.columns && (e.columns as any)["col_col_pa8jdiap7u1z"]) || "";
+      const dn = e.displayName ?? "";
+      return `${dn}|${email}|${e.entityId}`;
+    });
     stopTyping();
     return out;
   },
 });
-
