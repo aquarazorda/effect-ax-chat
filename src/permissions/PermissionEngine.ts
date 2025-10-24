@@ -222,14 +222,20 @@ export const makePermissionEngine = (): PermissionEngine => {
         traversal: traversals,
         anchorUserEntityId,
       } as const;
-    }).pipe(
-      Effect.catchAll(() =>
-        Effect.succeed<EntityReadPlan>({
-          mode: "denyAll",
-          fieldGroupPolicy: emptyPolicy(),
+    })
+      .pipe(
+        Effect.withSpan("PermissionEngine.planEntityRead", {
+          attributes: { orgId: organizationId, versionType, entityTypeId },
         }),
-      ),
-    );
+      )
+      .pipe(
+        Effect.catchAll(() =>
+          Effect.succeed<EntityReadPlan>({
+            mode: "denyAll",
+            fieldGroupPolicy: emptyPolicy(),
+          }),
+        ),
+      );
 
   const planActionExecute: PermissionEngine["planActionExecute"] = ({
     organizationId,
@@ -281,14 +287,20 @@ export const makePermissionEngine = (): PermissionEngine => {
         traversal: traversals,
         anchorUserEntityId,
       } as const;
-    }).pipe(
-      Effect.catchAll(() =>
-        Effect.succeed<ActionExecutePlan>({
-          mode: "denyAll",
-          actionVersionId,
+    })
+      .pipe(
+        Effect.withSpan("PermissionEngine.planActionExecute", {
+          attributes: { orgId: organizationId, versionType, actionVersionId },
         }),
-      ),
-    );
+      )
+      .pipe(
+        Effect.catchAll(() =>
+          Effect.succeed<ActionExecutePlan>({
+            mode: "denyAll",
+            actionVersionId,
+          }),
+        ),
+      );
 
   return { planEntityRead, planActionExecute };
 };

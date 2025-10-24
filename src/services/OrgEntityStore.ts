@@ -73,6 +73,8 @@ export class OrgEntityStoreTag extends Context.Tag("effect-ax/OrgEntityStore")<
 
 // Placeholder implementation: returns empty results until a concrete org schema is wired.
 export const makeOrgEntityStore = (): OrgEntityStore => {
+  const safeLiteral = (s: string): string | undefined =>
+    /^[A-Za-z0-9_:\-]+$/.test(s) ? s : undefined;
   // Resolve workspace-bound version ids
   const resolveEntityTypeVersionId = (
     db: BuilderDatabase,
@@ -269,18 +271,17 @@ export const makeOrgEntityStore = (): OrgEntityStore => {
       const statusColRaw = targetVer.status_col
         ? columnSqlName(targetVer.status_col)
         : undefined;
+      const unrestricted = !allowedColumns || allowedColumns.size === 0;
       const displayCol =
-        allowedColumns &&
-        targetVer.display_col &&
-        !allowedColumns.has(targetVer.display_col)
-          ? undefined
-          : displayColRaw;
+        unrestricted ||
+        (targetVer.display_col && allowedColumns?.has(targetVer.display_col))
+          ? displayColRaw
+          : undefined;
       const statusCol =
-        allowedColumns &&
-        targetVer.status_col &&
-        !allowedColumns.has(targetVer.status_col)
-          ? undefined
-          : statusColRaw;
+        unrestricted ||
+        (targetVer.status_col && allowedColumns?.has(targetVer.status_col))
+          ? statusColRaw
+          : undefined;
       if (!rel.a || !rel.b) {
         return {
           entities: [],
@@ -307,7 +308,7 @@ export const makeOrgEntityStore = (): OrgEntityStore => {
 
       // Build optional JSON columns projection for allowedColumns beyond display/status
       const extraCols: string[] = [];
-      if (allowedColumns) {
+      if (allowedColumns && allowedColumns.size > 0) {
         for (const col of allowedColumns) {
           if (
             (targetVer.display_col && col === targetVer.display_col) ||
@@ -330,6 +331,8 @@ export const makeOrgEntityStore = (): OrgEntityStore => {
           const started = Date.now();
           // keyset/order handled inline in query text below
           if (displayCol && statusCol) {
+            const ks = keyset ? safeLiteral(keyset) : undefined;
+            const anchor = safeLiteral(filter.anchorUserEntityId);
             const q = `SELECT r.${targetCol} as entity_id,
                           e.${displayCol} as display_name,
                           e.${statusCol} as status,
@@ -338,14 +341,16 @@ export const makeOrgEntityStore = (): OrgEntityStore => {
                        FROM ${relTable} as r
                        INNER JOIN ${entTable} as e
                          ON e.${META.ENTITY_ID} = r.${targetCol} AND e.${META.IS_DELETED} = false
-                       WHERE r.${anchorCol} = '${filter.anchorUserEntityId}'
+                        WHERE r.${anchorCol} = '${anchor ?? ""}'
                          AND r.${META.IS_DELETED} = false
-                         ${keyset ? (order === "asc" ? `AND r.${targetCol} > '${keyset}'` : `AND r.${targetCol} < '${keyset}'`) : ""}
+                         ${ks ? (order === "asc" ? `AND r.${targetCol} > '${ks}'` : `AND r.${targetCol} < '${ks}'`) : ""}
                        ORDER BY r.${targetCol} ${order === "asc" ? "ASC" : "DESC"}
                        LIMIT ${limit} OFFSET ${offset}`;
             return orgDb.execute(sql.raw(q));
           }
           if (displayCol && !statusCol) {
+            const ks = keyset ? safeLiteral(keyset) : undefined;
+            const anchor = safeLiteral(filter.anchorUserEntityId);
             const q = `SELECT r.${targetCol} as entity_id,
                           e.${displayCol} as display_name,
                           ${jsonColumnsExpr}
@@ -353,22 +358,24 @@ export const makeOrgEntityStore = (): OrgEntityStore => {
                        FROM ${relTable} as r
                        INNER JOIN ${entTable} as e
                          ON e.${META.ENTITY_ID} = r.${targetCol} AND e.${META.IS_DELETED} = false
-                       WHERE r.${anchorCol} = '${filter.anchorUserEntityId}'
+                        WHERE r.${anchorCol} = '${anchor ?? ""}'
                          AND r.${META.IS_DELETED} = false
-                         ${keyset ? (order === "asc" ? `AND r.${targetCol} > '${keyset}'` : `AND r.${targetCol} < '${keyset}'`) : ""}
+                         ${ks ? (order === "asc" ? `AND r.${targetCol} > '${ks}'` : `AND r.${targetCol} < '${ks}'`) : ""}
                        ORDER BY r.${targetCol} ${order === "asc" ? "ASC" : "DESC"}
                        LIMIT ${limit} OFFSET ${offset}`;
             return orgDb.execute(sql.raw(q));
           }
+          const ks = keyset ? safeLiteral(keyset) : undefined;
+          const anchor = safeLiteral(filter.anchorUserEntityId);
           const q = `SELECT r.${targetCol} as entity_id,
                          ${jsonColumnsExpr}
                          1 as __dummy__
                       FROM ${relTable} as r
                       INNER JOIN ${entTable} as e
                         ON e.${META.ENTITY_ID} = r.${targetCol} AND e.${META.IS_DELETED} = false
-                      WHERE r.${anchorCol} = '${filter.anchorUserEntityId}'
+                      WHERE r.${anchorCol} = '${anchor ?? ""}'
                         AND r.${META.IS_DELETED} = false
-                        ${keyset ? (order === "asc" ? `AND r.${targetCol} > '${keyset}'` : `AND r.${targetCol} < '${keyset}'`) : ""}
+                        ${ks ? (order === "asc" ? `AND r.${targetCol} > '${ks}'` : `AND r.${targetCol} < '${ks}'`) : ""}
                       ORDER BY r.${targetCol} ${order === "asc" ? "ASC" : "DESC"}
                       LIMIT ${limit} OFFSET ${offset}`;
           return orgDb.execute(sql.raw(q));
@@ -423,14 +430,23 @@ export const makeOrgEntityStore = (): OrgEntityStore => {
                 entityId: r.entity_id,
                 ...(r.display_name ? { displayName: r.display_name } : {}),
                 ...(r.status ? { status: r.status } : {}),
-                ...(typeof (r as any).columns !== "undefined"
-                  ? { columns: (r as any).columns as Record<string, unknown> }
+                ...(typeof r.columns !== "undefined"
+                  ? { columns: r.columns }
                   : {}),
               })),
         totalNumberEntities: total,
         totalNumberPages: totalPages,
       } satisfies QueryEntitiesResult;
-    });
+    }).pipe(
+      Effect.withSpan("OrgEntityStore.queryByOneHopFilter", {
+        attributes: {
+          orgId: organizationId,
+          versionType,
+          relationId: filter.relationId,
+          direction: filter.direction,
+        },
+      }),
+    );
 
   const queryByMultiHopFilter: OrgEntityStore["queryByMultiHopFilter"] = ({
     organizationId,
@@ -541,18 +557,17 @@ export const makeOrgEntityStore = (): OrgEntityStore => {
       const statusColRaw = targetVer?.status_col
         ? columnSqlName(targetVer.status_col)
         : undefined;
+      const unrestricted2 = !allowedColumns || allowedColumns.size === 0;
       const displayCol =
-        allowedColumns &&
-        targetVer?.display_col &&
-        !allowedColumns.has(targetVer.display_col)
-          ? undefined
-          : displayColRaw;
+        unrestricted2 ||
+        (targetVer?.display_col && allowedColumns?.has(targetVer.display_col))
+          ? displayColRaw
+          : undefined;
       const statusCol =
-        allowedColumns &&
-        targetVer?.status_col &&
-        !allowedColumns.has(targetVer.status_col)
-          ? undefined
-          : statusColRaw;
+        unrestricted2 ||
+        (targetVer?.status_col && allowedColumns?.has(targetVer.status_col))
+          ? statusColRaw
+          : undefined;
 
       // Build recursive CTE across steps (bounded by steps length)
       const resolver = yield* OrgDbResolverTag;
@@ -564,7 +579,7 @@ export const makeOrgEntityStore = (): OrgEntityStore => {
 
       // JSON columns projection for allowedColumns beyond display/status
       const extraCols: string[] = [];
-      if (allowedColumns) {
+      if (allowedColumns && allowedColumns.size > 0) {
         for (const col of allowedColumns) {
           if (
             (targetVer?.display_col && col === targetVer.display_col) ||
@@ -610,10 +625,11 @@ export const makeOrgEntityStore = (): OrgEntityStore => {
       ]
         .filter(Boolean)
         .join(", ");
-      const keysetFilter = keyset
+      const ks2 = keyset ? safeLiteral(keyset) : undefined;
+      const keysetFilter = ks2
         ? order === "asc"
-          ? `AND e.${META.ENTITY_ID} > '${keyset}'`
-          : `AND e.${META.ENTITY_ID} < '${keyset}'`
+          ? `AND e.${META.ENTITY_ID} > '${ks2}'`
+          : `AND e.${META.ENTITY_ID} < '${ks2}'`
         : "";
       const rowsStartedAtAll = Date.now();
       const selectSql = `${cte}
@@ -677,14 +693,22 @@ WHERE s.depth = ${stepVersions.length}`;
                 entityId: r.entity_id,
                 ...(r.display_name ? { displayName: r.display_name } : {}),
                 ...(r.status ? { status: r.status } : {}),
-                ...(typeof (r as any).columns !== "undefined"
-                  ? { columns: (r as any).columns as Record<string, unknown> }
+                ...(typeof r.columns !== "undefined"
+                  ? { columns: r.columns }
                   : {}),
               })),
         totalNumberEntities: total,
         totalNumberPages: totalPages,
       } satisfies QueryEntitiesResult;
-    });
+    }).pipe(
+      Effect.withSpan("OrgEntityStore.queryByMultiHopFilter", {
+        attributes: {
+          orgId: organizationId,
+          versionType,
+          steps: filter.steps.length,
+        },
+      }),
+    );
 
   const queryAllOfType: OrgEntityStore["queryAllOfType"] = ({
     organizationId,
@@ -761,7 +785,7 @@ WHERE s.depth = ${stepVersions.length}`;
       const order = config.order ?? "asc";
       const keyset = config.cursorEntityId;
       const extraCols: string[] = [];
-      if (allowedColumns) {
+      if (allowedColumns && allowedColumns.size > 0) {
         for (const col of allowedColumns) {
           if (
             (ver.display_col && col === ver.display_col) ||
@@ -777,10 +801,11 @@ WHERE s.depth = ${stepVersions.length}`;
               .map((c) => `'${c}', e.${columnSqlName(c)}`)
               .join(", ")}) as columns,`
           : "";
-      const keysetFilter = keyset
+      const ks3 = keyset ? safeLiteral(keyset) : undefined;
+      const keysetFilter = ks3
         ? order === "asc"
-          ? `AND e.${META.ENTITY_ID} > '${keyset}'`
-          : `AND e.${META.ENTITY_ID} < '${keyset}'`
+          ? `AND e.${META.ENTITY_ID} > '${ks3}'`
+          : `AND e.${META.ENTITY_ID} < '${ks3}'`
         : "";
       const rowsRes = yield* Effect.tryPromise({
         try: () => {
@@ -863,14 +888,22 @@ WHERE s.depth = ${stepVersions.length}`;
                 entityId: r.entity_id,
                 ...(r.display_name ? { displayName: r.display_name } : {}),
                 ...(r.status ? { status: r.status } : {}),
-                ...(typeof (r as any).columns !== "undefined"
-                  ? { columns: (r as any).columns as Record<string, unknown> }
+                ...(typeof r.columns !== "undefined"
+                  ? { columns: r.columns }
                   : {}),
               })),
         totalNumberEntities: total,
         totalNumberPages: totalPages,
       } satisfies QueryEntitiesResult;
-    });
+    }).pipe(
+      Effect.withSpan("OrgEntityStore.queryAllOfType", {
+        attributes: {
+          orgId: organizationId,
+          versionType,
+          entityTypeId: targetEntityTypeId,
+        },
+      }),
+    );
 
   return { queryByOneHopFilter, queryByMultiHopFilter, queryAllOfType };
 };

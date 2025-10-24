@@ -319,6 +319,15 @@ export const makeEntityQueryService = (): EntityQueryService => {
                 totalNumberPages: 0,
               }),
             ),
+          )
+          .pipe(
+            Effect.withSpan("OrgEntityStore.queryAllOfType", {
+              attributes: {
+                orgId: organizationId,
+                versionType,
+                entityTypeId: query.entityTypeId,
+              },
+            }),
           );
         return { ...allRes, entities: yield* prune(allRes.entities) };
       }
@@ -347,6 +356,16 @@ export const makeEntityQueryService = (): EntityQueryService => {
                 totalNumberPages: 0,
               }),
             ),
+          )
+          .pipe(
+            Effect.withSpan("OrgEntityStore.queryByMultiHopFilter", {
+              attributes: {
+                orgId: organizationId,
+                versionType,
+                entityTypeId: query.entityTypeId,
+                steps: multiHop.value.steps.length,
+              },
+            }),
           );
         return { ...result, entities: yield* prune(result.entities) };
       }
@@ -370,6 +389,17 @@ export const makeEntityQueryService = (): EntityQueryService => {
                 totalNumberPages: 0,
               }),
             ),
+          )
+          .pipe(
+            Effect.withSpan("OrgEntityStore.queryByOneHopFilter", {
+              attributes: {
+                orgId: organizationId,
+                versionType,
+                entityTypeId: query.entityTypeId,
+                relationId: oneHop.value.relationId,
+                direction: oneHop.value.direction,
+              },
+            }),
           );
         return { ...result, entities: yield* prune(result.entities) };
       }
@@ -379,7 +409,15 @@ export const makeEntityQueryService = (): EntityQueryService => {
         totalNumberEntities: 0,
         totalNumberPages: 0,
       } as const;
-    });
+    }).pipe(
+      Effect.withSpan("EntityQueryService.query", {
+        attributes: {
+          orgId: organizationId,
+          versionType,
+          entityTypeId: query.entityTypeId,
+        },
+      }),
+    );
 
   return { query };
 };
