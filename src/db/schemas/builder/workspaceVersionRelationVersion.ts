@@ -1,8 +1,8 @@
 import { timestamp, varchar } from "drizzle-orm/pg-core";
-import { builder } from "../creators";
+import { builderSchema } from "../creators";
 import type { RelationVersionId, WorkspaceVersionId } from "../../ids";
 
-export const workspace_version_relation_version = builder(
+export const workspace_version_relation_version = builderSchema.table(
   "workspace_version_relation_version",
   {
     workspace_version_id: varchar("workspace_version_id")

@@ -7,7 +7,7 @@ import {
   varchar,
   index,
 } from "drizzle-orm/pg-core";
-import { builder } from "../creators";
+import { builderSchema } from "../creators";
 import type {
   ActionId,
   EntityTypeId,
@@ -15,7 +15,7 @@ import type {
   ColumnId,
 } from "../../ids";
 
-export const data_model_entity_type_version = builder(
+export const data_model_entity_type_version = builderSchema.table(
   "data_model_entity_type_version",
   {
     version_id: varchar("version_id")

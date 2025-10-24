@@ -11,6 +11,10 @@ import {
   drizzle as drizzlePglite,
   type PgliteDatabase,
 } from "drizzle-orm/pglite";
+import {
+  drizzle as drizzleBunSql,
+  type BunSQLDatabase,
+} from "drizzle-orm/bun-sql";
 import { PGlite } from "@electric-sql/pglite";
 import { neon } from "@neondatabase/serverless";
 import { dbSchema } from "./schema";
@@ -33,10 +37,33 @@ const makeNeonDb = (cfg: DbConfig): NeonHttpDatabase<typeof dbSchema> => {
   return drizzleNeon(sql, { schema: dbSchema });
 };
 
-const makePgliteDb = (): PgliteDatabase<typeof dbSchema> => {
-  const client = new PGlite();
+const makePgliteDb = async (
+  env: AppEnv,
+): Promise<PgliteDatabase<typeof dbSchema>> => {
+  const opts: any = {};
+  if (env.PGLITE_DATA_DIR) opts.dataDir = env.PGLITE_DATA_DIR;
+  const client = new PGlite(opts);
+
+  // Optionally restore schema/data from a SQL file if provided
+  if (env.PGLITE_RESTORE_PATH) {
+    try {
+      const sqlFile = Bun.file(env.PGLITE_RESTORE_PATH);
+      if (await sqlFile.exists()) {
+        const sqlText = await sqlFile.text();
+        if (sqlText && sqlText.length > 0) {
+          await client.exec(sqlText);
+        }
+      }
+    } catch (e) {
+      // best-effort: surface restore issues early
+      console.error("PGlite restore failed", e);
+    }
+  }
   return drizzlePglite(client, { schema: dbSchema });
 };
+
+const makeBunSqlDb = (url: string): BunSQLDatabase<typeof dbSchema> =>
+  drizzleBunSql(url, { schema: dbSchema });
 
 /**
  * Builder DB (single) layer. Uses DbConfigTag for connection info.
@@ -52,9 +79,21 @@ export const makeBuilderDbLayer: Layer.Layer<
     const cfg: DbConfig = yield* DbConfigTag;
     const env: AppEnv = yield* AppEnvTag;
     const driver = env.DB_DRIVER ?? "neon";
-    const db: BuilderDatabase =
-      driver === "pglite" ? makePgliteDb() : makeNeonDb(cfg);
-    return db;
+    if (driver === "pglite") {
+      return (yield* Effect.promise(() =>
+        makePgliteDb(env),
+      )) as BuilderDatabase;
+    }
+    if (driver === "bun" || driver === "bun-sql" || driver === "local") {
+      const localUrl = env.LOCAL_DATABASE_URL ?? env.DATABASE_URL;
+      if (!localUrl) {
+        throw new Error(
+          "LOCAL_DATABASE_URL (or DATABASE_URL) must be set for bun-sql driver",
+        );
+      }
+      return makeBunSqlDb(localUrl) as BuilderDatabase;
+    }
+    return makeNeonDb(cfg) as BuilderDatabase;
   }),
 );
 
@@ -75,9 +114,15 @@ export const makeOrgDbResolverLayer: Layer.Layer<
     const builderDb = yield* BuilderDbTag;
     const env: AppEnv = yield* AppEnvTag;
 
-    const cache = new Map<string, NeonHttpDatabase<typeof dbSchema>>();
+    const cache = new Map<
+      string,
+      NeonHttpDatabase<typeof dbSchema> | ReturnType<typeof drizzleBunSql>
+    >();
 
     const decrypt = (encryptedText: string): string => {
+      if (encryptedText.startsWith("encrypted_")) {
+        return encryptedText.slice("encrypted_".length);
+      }
       const keyB64 = env.DATABASE_ENCRYPTION_KEY_B64;
       const ivLenStr = env.DATABASE_ENCRYPTION_IV_LENGTH;
       if (!keyB64 || !ivLenStr) {
@@ -126,8 +171,17 @@ export const makeOrgDbResolverLayer: Layer.Layer<
           }
 
           const url = decrypt(encrypted);
-          const sql = neon(url);
-          const orgDb = drizzleNeon(sql, { schema: dbSchema });
+          let orgDb: any;
+          try {
+            if (url.includes(".neon.tech") || url.includes("neon.tech/")) {
+              const sql = neon(url);
+              orgDb = drizzleNeon(sql, { schema: dbSchema });
+            } else {
+              orgDb = drizzleBunSql(url, { schema: dbSchema });
+            }
+          } catch (e) {
+            throw makeDbError("Failed to initialize org DB client", e);
+          }
           cache.set(organizationId, orgDb);
           return orgDb;
         },

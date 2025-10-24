@@ -141,12 +141,14 @@ export const makeMaxAgent: AgentFactory<
             Runtime.runPromise(
               runtime,
               Effect.flatMap(EntityTypeCatalogTag, (c) =>
-                c.listEntityTypes({
-                  organizationId: S.decodeUnknownSync(OrganizationIdSchema)(
-                    env.DEMO_ORG_ID,
-                  ),
-                  versionType: "prod",
-                }),
+                c
+                  .listEntityTypes({
+                    organizationId: S.decodeUnknownSync(OrganizationIdSchema)(
+                      env.DEMO_ORG_ID,
+                    ),
+                    versionType: "prod",
+                  })
+                  .pipe(Effect.catchAll(() => Effect.succeed([]))),
               ),
             ),
           );
@@ -179,13 +181,15 @@ export const makeMaxAgent: AgentFactory<
               Runtime.runPromise(
                 runtime,
                 Effect.flatMap(EntityTypeCatalogTag, (c) =>
-                  c.listColumns({
-                    organizationId: S.decodeUnknownSync(OrganizationIdSchema)(
-                      env.DEMO_ORG_ID,
-                    ),
-                    versionType: "prod",
-                    entityTypeId: people.id,
-                  }),
+                  c
+                    .listColumns({
+                      organizationId: S.decodeUnknownSync(OrganizationIdSchema)(
+                        env.DEMO_ORG_ID,
+                      ),
+                      versionType: "prod",
+                      entityTypeId: people.id,
+                    })
+                    .pipe(Effect.catchAll(() => Effect.succeed([]))),
                 ),
               ),
             );
@@ -215,16 +219,19 @@ export const makeMaxAgent: AgentFactory<
                 Runtime.runPromise(
                   runtime,
                   Effect.flatMap(OrgEntityStoreTag, (s) =>
-                    s.findByColumnEquals({
-                      organizationId: S.decodeUnknownSync(OrganizationIdSchema)(
-                        env.DEMO_ORG_ID,
-                      ),
-                      versionType:
-                        S.decodeUnknownSync(VersionTypeSchema)("prod"),
-                      targetEntityTypeId: people.id,
-                      columnId: S.decodeUnknownSync(ColumnIdSchema)(phoneColId),
-                      value: phoneNumber!,
-                    }),
+                    s
+                      .findByColumnEquals({
+                        organizationId: S.decodeUnknownSync(
+                          OrganizationIdSchema,
+                        )(env.DEMO_ORG_ID),
+                        versionType:
+                          S.decodeUnknownSync(VersionTypeSchema)("prod"),
+                        targetEntityTypeId: people.id,
+                        columnId:
+                          S.decodeUnknownSync(ColumnIdSchema)(phoneColId),
+                        value: phoneNumber!,
+                      })
+                      .pipe(Effect.catchAll(() => Effect.succeed(undefined))),
                   ),
                 ),
               );
@@ -280,10 +287,14 @@ export const makeMaxAgent: AgentFactory<
             const types = await Runtime.runPromise(
               runtime,
               Effect.flatMap(EntityTypeCatalogTag, (c) =>
-                c.listEntityTypes({
-                  organizationId: env.DEMO_ORG_ID as any,
-                  versionType: "prod",
-                }),
+                c
+                  .listEntityTypes({
+                    organizationId: S.decodeUnknownSync(OrganizationIdSchema)(
+                      env.DEMO_ORG_ID,
+                    ),
+                    versionType: "prod",
+                  })
+                  .pipe(Effect.catchAll(() => Effect.succeed([]))),
               ),
             );
             return types.map((t) => ({
@@ -307,11 +318,15 @@ export const makeMaxAgent: AgentFactory<
             const cols = await Runtime.runPromise(
               runtime,
               Effect.flatMap(EntityTypeCatalogTag, (c) =>
-                c.listColumns({
-                  organizationId: env.DEMO_ORG_ID as any,
-                  versionType: "prod",
-                  entityTypeId,
-                }),
+                c
+                  .listColumns({
+                    organizationId: S.decodeUnknownSync(OrganizationIdSchema)(
+                      env.DEMO_ORG_ID,
+                    ),
+                    versionType: "prod",
+                    entityTypeId,
+                  })
+                  .pipe(Effect.catchAll(() => Effect.succeed([]))),
               ),
             );
             return cols;
@@ -344,19 +359,30 @@ export const makeMaxAgent: AgentFactory<
             const pageNumber = params.pageNumber ?? 0;
             const pageSize = params.pageSize ?? 20;
             // Plan authorizations and derive a minimal filter; inject anchor id
-            const plan = await Runtime.runPromise(
+            const planOk = await Runtime.runPromise(
               runtime,
               Effect.flatMap(PermissionEngineTag, (e) =>
-                e.planEntityRead({
-                  organizationId: S.decodeUnknownSync(OrganizationIdSchema)(
-                    env.DEMO_ORG_ID,
+                e
+                  .planEntityRead({
+                    organizationId: S.decodeUnknownSync(OrganizationIdSchema)(
+                      env.DEMO_ORG_ID,
+                    ),
+                    versionType: S.decodeUnknownSync(VersionTypeSchema)("prod"),
+                    entityTypeId: params.entityTypeId as any,
+                    subject: { type: "read" },
+                  })
+                  .pipe(Effect.map((p) => ({ _tag: "ok" as const, plan: p })))
+                  .pipe(
+                    Effect.catchAll(() =>
+                      Effect.succeed({ _tag: "err" as const }),
+                    ),
                   ),
-                  versionType: S.decodeUnknownSync(VersionTypeSchema)("prod"),
-                  entityTypeId: params.entityTypeId as any,
-                  subject: { type: "read" },
-                }),
               ),
             );
+            if (planOk._tag === "err") {
+              return { total: 0, pageCount: 0, entities: [] } as const;
+            }
+            const plan = planOk.plan;
             // Choose multi-hop first else one-hop; build filter with anchor
             const multi = Option.getOrUndefined(
               ((): Option.Option<
@@ -372,9 +398,8 @@ export const makeMaxAgent: AgentFactory<
                         relationId: s.relationId,
                         direction: s.direction,
                       })),
-                      anchorUserEntityId: S.decodeUnknownSync(
-                        UserEntityIdSchema,
-                      )(anchorEntityId),
+                      anchorUserEntityId:
+                        S.decodeUnknownSync(UserEntityIdSchema)(anchorEntityId),
                     });
                   }
                 }
@@ -394,9 +419,8 @@ export const makeMaxAgent: AgentFactory<
                       targetEntityTypeId: params.entityTypeId as any,
                       relationId: s0.relationId,
                       direction: s0.direction,
-                      anchorUserEntityId: S.decodeUnknownSync(
-                        UserEntityIdSchema,
-                      )(anchorEntityId),
+                      anchorUserEntityId:
+                        S.decodeUnknownSync(UserEntityIdSchema)(anchorEntityId),
                     });
                   }
                 }
@@ -411,7 +435,7 @@ export const makeMaxAgent: AgentFactory<
             const result = await Runtime.runPromise(
               runtime,
               Effect.flatMap(OrgEntityStoreTag, (s) =>
-                multi
+                (multi
                   ? s.queryByMultiHopFilter({
                       organizationId: S.decodeUnknownSync(OrganizationIdSchema)(
                         env.DEMO_ORG_ID,
@@ -431,7 +455,16 @@ export const makeMaxAgent: AgentFactory<
                       filter: one!,
                       config: { countsOnly: false },
                       page: { pageNumber, pageSize },
+                    })
+                ).pipe(
+                  Effect.catchAll(() =>
+                    Effect.succeed({
+                      entities: [],
+                      totalNumberEntities: 0,
+                      totalNumberPages: 0,
                     }),
+                  ),
+                ),
               ),
             );
             return {

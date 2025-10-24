@@ -1,8 +1,8 @@
 import { jsonb, text, uniqueIndex, varchar } from "drizzle-orm/pg-core";
-import { auth } from "../creators";
+import { authSchema } from "../creators";
 import type { OrganizationId } from "../../ids";
 
-export const organization = auth(
+export const organization = authSchema.table(
   "organization",
   {
     id: varchar("id").$type<OrganizationId>().notNull().primaryKey(),

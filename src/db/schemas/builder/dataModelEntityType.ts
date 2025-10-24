@@ -1,5 +1,5 @@
 import { index, text, varchar } from "drizzle-orm/pg-core";
-import { builder } from "../creators";
+import { builderSchema } from "../creators";
 import type {
   ApplicationGroupId,
   ColumnId,
@@ -8,7 +8,7 @@ import type {
   RelationId,
 } from "../../ids";
 
-export const data_model_entity_type = builder(
+export const data_model_entity_type = builderSchema.table(
   "data_model_entity_type",
   {
     id: varchar("id").$type<EntityTypeId>().notNull().primaryKey(),

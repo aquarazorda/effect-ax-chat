@@ -10,7 +10,8 @@
     "db:introspect": "drizzle-kit introspect --config=drizzle.config.ts",
     "db:generate": "drizzle-kit generate --config=drizzle.config.ts",
     "db:migrate": "drizzle-kit migrate --config=drizzle.config.ts",
-    "db:studio": "drizzle-kit studio --config=drizzle.config.ts"
+    "db:studio": "drizzle-kit studio --config=drizzle.config.ts",
+    "db:health": "bun run src/app/tools/db-health.ts"
   },
   "devDependencies": {
     "@types/bun": "latest",

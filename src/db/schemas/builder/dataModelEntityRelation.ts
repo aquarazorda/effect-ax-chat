@@ -6,7 +6,7 @@ import {
   timestamp,
   varchar,
 } from "drizzle-orm/pg-core";
-import { builder } from "../creators";
+import { builderSchema } from "../creators";
 import type {
   EntityTypeId,
   OrganizationId,
@@ -14,7 +14,7 @@ import type {
   RelationVersionId,
 } from "../../ids";
 
-export const data_model_entity_relation = builder(
+export const data_model_entity_relation = builderSchema.table(
   "data_model_entity_relation",
   {
     version_id: varchar("version_id")

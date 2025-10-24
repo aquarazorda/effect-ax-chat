@@ -1,5 +1,5 @@
 import { boolean, index, text, varchar } from "drizzle-orm/pg-core";
-import { builder } from "../creators";
+import { builderSchema } from "../creators";
 import type {
   ActionVersionId,
   EntityTypeVersionId,
@@ -7,7 +7,7 @@ import type {
   VersionedEntityId,
 } from "../../ids";
 
-export const version_refs = builder(
+export const version_refs = builderSchema.table(
   "version_refs",
   {
     table_name: text("table_name").notNull(),

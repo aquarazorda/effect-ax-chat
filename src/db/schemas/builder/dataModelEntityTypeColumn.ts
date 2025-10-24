@@ -1,8 +1,8 @@
 import { boolean, index, jsonb, text, varchar } from "drizzle-orm/pg-core";
-import { builder } from "../creators";
+import { builderSchema } from "../creators";
 import type { ColumnId, EntityTypeVersionId } from "../../ids";
 
-export const data_model_entity_type_column = builder(
+export const data_model_entity_type_column = builderSchema.table(
   "data_model_entity_type_column",
   {
     id: varchar("id").$type<ColumnId>().notNull(),

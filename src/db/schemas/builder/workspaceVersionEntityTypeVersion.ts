@@ -1,8 +1,8 @@
 import { timestamp, varchar } from "drizzle-orm/pg-core";
-import { builder } from "../creators";
+import { builderSchema } from "../creators";
 import type { EntityTypeVersionId, WorkspaceVersionId } from "../../ids";
 
-export const workspace_version_entity_type_version = builder(
+export const workspace_version_entity_type_version = builderSchema.table(
   "workspace_version_entity_type_version",
   {
     workspace_version_id: varchar("workspace_version_id")

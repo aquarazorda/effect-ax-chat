@@ -1,12 +1,12 @@
 import { boolean, integer, timestamp, varchar } from "drizzle-orm/pg-core";
-import { builder } from "../creators";
+import { builderSchema } from "../creators";
 import type {
   FeatureApplicationRunId,
   OrganizationId,
   WorkspaceVersionId,
 } from "../../ids";
 
-export const workspace_version = builder("workspace_version", {
+export const workspace_version = builderSchema.table("workspace_version", {
   id: varchar("id").$type<OrganizationId>().notNull(),
   version_id: varchar("version_id")
     .$type<WorkspaceVersionId>()

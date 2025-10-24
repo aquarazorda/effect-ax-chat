@@ -29,16 +29,29 @@ const program = Effect.gen(function* () {
     debugEcho: false,
   });
 
+  // Log DB driver context for debugging local clones
+  yield* Effect.logInfo(
+    `db driver=${env.DB_DRIVER ?? "neon"} pglite_data_dir=${env.PGLITE_DATA_DIR ?? "-"} pglite_restore=${env.PGLITE_RESTORE_PATH ?? "-"}`,
+  );
+
   // Build agent deps layer (env + data + permissions). Provide dependencies so
   // DbConfig is internal and not part of outward context.
   const envL = makeEnvLayer;
   const dbConfigL = Layer.provide(envL)(makeDbConfigFromEnvLayer);
-  const builderDbL = Layer.provide(Layer.mergeAll(envL, dbConfigL))(makeBuilderDbLayer);
-  const orgResolverL = Layer.provide(Layer.mergeAll(builderDbL, envL))(makeOrgDbResolverLayer);
-  const authorizationL = Layer.provide(builderDbL)(makeAuthorizationServiceLayer);
+  const builderDbL = Layer.provide(Layer.mergeAll(envL, dbConfigL))(
+    makeBuilderDbLayer,
+  );
+  const orgResolverL = Layer.provide(Layer.mergeAll(builderDbL, envL))(
+    makeOrgDbResolverLayer,
+  );
+  const authorizationL = Layer.provide(builderDbL)(
+    makeAuthorizationServiceLayer,
+  );
   const userResolverL = Layer.provide(builderDbL)(makeUserEntityResolverLayer);
   const entityCatalogL = Layer.provide(builderDbL)(makeEntityTypeCatalogLayer);
-  const orgStoreL = Layer.provide(Layer.mergeAll(orgResolverL, builderDbL))(makeOrgEntityStoreLayer);
+  const orgStoreL = Layer.provide(Layer.mergeAll(orgResolverL, builderDbL))(
+    makeOrgEntityStoreLayer,
+  );
   // Permission engine has no deps; link token verifier no deps
   const agentDeps = Layer.mergeAll(
     envL,

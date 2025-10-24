@@ -1,12 +1,12 @@
 import { boolean, index, jsonb, text, varchar } from "drizzle-orm/pg-core";
-import { builder } from "../creators";
+import { builderSchema } from "../creators";
 import type {
   ActionVersionId,
   EntityTypeVersionId,
   OrganizationId,
 } from "../../ids";
 
-export const data_model_authorization = builder(
+export const data_model_authorization = builderSchema.table(
   "data_model_authorization",
   {
     organization_id: varchar("organization_id")

@@ -7,6 +7,9 @@ export const AppEnvSchema = S.Struct({
   // Required: builder database URL (Neon or Postgres HTTP connection string)
   DATABASE_URL: S.String,
 
+  // Optional: local Postgres URL (for Bun.sql driver)
+  LOCAL_DATABASE_URL: S.optional(S.String),
+
   // Optional: telegram token for chat transport
   TELEGRAM_TOKEN: S.String,
 
@@ -28,7 +31,21 @@ export const AppEnvSchema = S.Struct({
 
   // Optional: choose DB driver for Builder DB connection
   // "neon" (default) or "pglite" (in-memory / local)
-  DB_DRIVER: S.optional(S.Union(S.Literal("neon"), S.Literal("pglite"))),
+  DB_DRIVER: S.optional(
+    S.Union(
+      S.Literal("neon"),
+      S.Literal("pglite"),
+      S.Literal("bun"),
+      S.Literal("bun-sql"),
+      S.Literal("local"),
+    ),
+  ),
+
+  // Optional: PGlite persistence/restore settings for local clones
+  // If set, PGlite will use this directory for data storage
+  PGLITE_DATA_DIR: S.optional(S.String),
+  // If set, PGlite will restore from this SQL file when starting (only if needed)
+  PGLITE_RESTORE_PATH: S.optional(S.String),
 });
 export type AppEnv = typeof AppEnvSchema.Type;
 
@@ -50,6 +67,7 @@ export const makeEnvLayer: Layer.Layer<AppEnvTag> = Layer.effect(
   AppEnvTag,
   parseEnv({
     DATABASE_URL: Bun.env.DATABASE_URL,
+    LOCAL_DATABASE_URL: Bun.env.LOCAL_DATABASE_URL,
     TELEGRAM_TOKEN: Bun.env.TELEGRAM_TOKEN,
     DEMO_ORG_ID: Bun.env.DEMO_ORG_ID,
     DEMO_VERSION_TYPE: normalizeVersionType(Bun.env.DEMO_VERSION_TYPE),
@@ -60,6 +78,8 @@ export const makeEnvLayer: Layer.Layer<AppEnvTag> = Layer.effect(
     DATABASE_ENCRYPTION_KEY_B64: Bun.env.DATABASE_ENCRYPTION_KEY_B64,
     DATABASE_ENCRYPTION_IV_LENGTH: Bun.env.DATABASE_ENCRYPTION_IV_LENGTH,
     DB_DRIVER: Bun.env.DB_DRIVER,
+    PGLITE_DATA_DIR: Bun.env.PGLITE_DATA_DIR,
+    PGLITE_RESTORE_PATH: Bun.env.PGLITE_RESTORE_PATH,
   }).pipe(Effect.orDie),
 );
 
