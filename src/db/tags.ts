@@ -1,7 +1,6 @@
 import { Context, Effect } from "effect";
 import type { NeonHttpDatabase } from "drizzle-orm/neon-http";
-import type { PgliteDatabase } from "drizzle-orm/pglite";
-import type { BunSQLDatabase } from "drizzle-orm/bun-sql";
+import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import { dbSchema } from "./schema";
 
 export interface DbError {
@@ -19,20 +18,24 @@ export const makeDbError = (message: string, cause?: unknown): DbError => ({
 /** Builder (platform) database handle */
 export type BuilderDatabase =
   | NeonHttpDatabase<typeof dbSchema>
-  | PgliteDatabase<typeof dbSchema>
-  | BunSQLDatabase<typeof dbSchema>;
+  | NodePgDatabase<typeof dbSchema>;
 
 export class BuilderDbTag extends Context.Tag("effect-ax/BuilderDb")<
   BuilderDbTag,
   BuilderDatabase
 >() {}
 
+/** Minimal DB shape for org connections to avoid driver-specific result typing */
+export interface OrgDatabase {
+  readonly execute: (query: unknown) => PromiseLike<unknown>;
+}
+
 /** Per‑organization database resolver */
 export interface OrgDbResolver {
   readonly get: (
     organizationId: string,
   ) => Effect.Effect<
-    NeonHttpDatabase<typeof dbSchema> | BunSQLDatabase<typeof dbSchema>,
+    OrgDatabase,
     DbError
   >;
 }

@@ -25,6 +25,7 @@
     "@ax-llm/ax": "latest",
     "@electric-sql/pglite": "^0.3.11",
     "@neondatabase/serverless": "^1.0.2",
+    "pg": "^8.13.1",
     "drizzle-orm": "^0.44.7",
     "effect": "latest",
     "telegraf": "^4.16.3"

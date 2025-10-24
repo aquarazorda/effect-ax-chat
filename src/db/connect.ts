@@ -1,21 +1,14 @@
 import { Effect, Layer } from "effect";
 import { BuilderDbTag, OrgDbResolverTag, makeDbError } from "./tags";
-import type { OrgDbResolver, DbError } from "./tags";
+import type { OrgDbResolver, DbError, OrgDatabase } from "./tags";
 import { DbConfigTag } from "./config";
 import type { DbConfig } from "./config";
 import {
   drizzle as drizzleNeon,
   type NeonHttpDatabase,
 } from "drizzle-orm/neon-http";
-import {
-  drizzle as drizzlePglite,
-  type PgliteDatabase,
-} from "drizzle-orm/pglite";
-import {
-  drizzle as drizzleBunSql,
-  type BunSQLDatabase,
-} from "drizzle-orm/bun-sql";
-import { PGlite } from "@electric-sql/pglite";
+import { drizzle as drizzleNodePg, type NodePgDatabase } from "drizzle-orm/node-postgres";
+import { Pool as PgPool } from "pg";
 import { neon } from "@neondatabase/serverless";
 import { dbSchema } from "./schema";
 import { eq } from "drizzle-orm";
@@ -28,42 +21,17 @@ import type { BuilderDatabase } from "./tags";
 import * as S from "effect/Schema";
 import { OrganizationIdSchema } from "./ids";
 
-/**
- * Placeholder creator for a Drizzle DB handle.
- * Replace internals with actual drizzle-orm (neon-http/pglite) when wiring drivers.
- */
+/** Create a Drizzle DB handle for Neon HTTP driver */
 const makeNeonDb = (cfg: DbConfig): NeonHttpDatabase<typeof dbSchema> => {
   const sql = neon(cfg.databaseUrl);
   return drizzleNeon(sql, { schema: dbSchema });
 };
 
-const makePgliteDb = async (
-  env: AppEnv,
-): Promise<PgliteDatabase<typeof dbSchema>> => {
-  const opts: any = {};
-  if (env.PGLITE_DATA_DIR) opts.dataDir = env.PGLITE_DATA_DIR;
-  const client = new PGlite(opts);
-
-  // Optionally restore schema/data from a SQL file if provided
-  if (env.PGLITE_RESTORE_PATH) {
-    try {
-      const sqlFile = Bun.file(env.PGLITE_RESTORE_PATH);
-      if (await sqlFile.exists()) {
-        const sqlText = await sqlFile.text();
-        if (sqlText && sqlText.length > 0) {
-          await client.exec(sqlText);
-        }
-      }
-    } catch (e) {
-      // best-effort: surface restore issues early
-      console.error("PGlite restore failed", e);
-    }
-  }
-  return drizzlePglite(client, { schema: dbSchema });
+/** Create a Drizzle DB handle for Node Postgres driver */
+const makeNodePgDb = (url: string): NodePgDatabase<typeof dbSchema> => {
+  const pool = new PgPool({ connectionString: url });
+  return drizzleNodePg(pool, { schema: dbSchema });
 };
-
-const makeBunSqlDb = (url: string): BunSQLDatabase<typeof dbSchema> =>
-  drizzleBunSql(url, { schema: dbSchema });
 
 /**
  * Builder DB (single) layer. Uses DbConfigTag for connection info.
@@ -79,19 +47,9 @@ export const makeBuilderDbLayer: Layer.Layer<
     const cfg: DbConfig = yield* DbConfigTag;
     const env: AppEnv = yield* AppEnvTag;
     const driver = env.DB_DRIVER ?? "neon";
-    if (driver === "pglite") {
-      return (yield* Effect.promise(() =>
-        makePgliteDb(env),
-      )) as BuilderDatabase;
-    }
-    if (driver === "bun" || driver === "bun-sql" || driver === "local") {
-      const localUrl = env.LOCAL_DATABASE_URL ?? env.DATABASE_URL;
-      if (!localUrl) {
-        throw new Error(
-          "LOCAL_DATABASE_URL (or DATABASE_URL) must be set for bun-sql driver",
-        );
-      }
-      return makeBunSqlDb(localUrl) as BuilderDatabase;
+    if (driver === "pg" || driver === "node" || driver === "node-pg") {
+      const url = env.LOCAL_DATABASE_URL ?? env.DATABASE_URL;
+      return makeNodePgDb(url) as BuilderDatabase;
     }
     return makeNeonDb(cfg) as BuilderDatabase;
   }),
@@ -114,10 +72,7 @@ export const makeOrgDbResolverLayer: Layer.Layer<
     const builderDb = yield* BuilderDbTag;
     const env: AppEnv = yield* AppEnvTag;
 
-    const cache = new Map<
-      string,
-      NeonHttpDatabase<typeof dbSchema> | ReturnType<typeof drizzleBunSql>
-    >();
+    const cache = new Map<string, OrgDatabase>();
 
     const decrypt = (encryptedText: string): string => {
       if (encryptedText.startsWith("encrypted_")) {
@@ -171,19 +126,17 @@ export const makeOrgDbResolverLayer: Layer.Layer<
           }
 
           const url = decrypt(encrypted);
-          let orgDb: any;
           try {
-            if (url.includes(".neon.tech") || url.includes("neon.tech/")) {
-              const sql = neon(url);
-              orgDb = drizzleNeon(sql, { schema: dbSchema });
-            } else {
-              orgDb = drizzleBunSql(url, { schema: dbSchema });
-            }
+            const raw = url.includes(".neon.tech") || url.includes("neon.tech/")
+              ? drizzleNeon(neon(url), { schema: dbSchema })
+              : makeNodePgDb(url);
+            // Narrow to OrgDatabase shape; allowed to cast in connect glue per AGENTS.md
+            const orgDb = raw as unknown as OrgDatabase;
+            cache.set(organizationId, orgDb);
+            return orgDb;
           } catch (e) {
             throw makeDbError("Failed to initialize org DB client", e);
           }
-          cache.set(organizationId, orgDb);
-          return orgDb;
         },
         catch: (cause) => makeDbError("Failed to resolve org DB", cause),
       });

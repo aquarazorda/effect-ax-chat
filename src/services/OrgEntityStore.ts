@@ -89,6 +89,26 @@ export class OrgEntityStoreTag extends Context.Tag("effect-ax/OrgEntityStore")<
 
 // Placeholder implementation: returns empty results until a concrete org schema is wired.
 export const makeOrgEntityStore = (): OrgEntityStore => {
+  // Normalize driver results to readonly row arrays without casts
+  const decodeRows = <A>(
+    u: unknown,
+    row: S.Schema<A, A>,
+    label: string,
+  ): Effect.Effect<readonly A[], DbError> =>
+    Effect.try({
+      try: () => {
+        const RowsObj = S.Struct({ rows: S.Array(row) });
+        try {
+          const r = S.decodeUnknownSync(RowsObj)(u);
+          return r.rows as readonly A[];
+        } catch {
+          const Arr = S.Array(row);
+          const r = S.decodeUnknownSync(Arr)(u);
+          return r as readonly A[];
+        }
+      },
+      catch: (cause) => makeDbError(`Failed to decode ${label} rows`, cause),
+    });
   const safeLiteral = (s: string): string | undefined =>
     /^[A-Za-z0-9_:\-]+$/.test(s) ? s : undefined;
   const safePhoneLiteral = (s: string): string | undefined =>
@@ -344,97 +364,77 @@ export const makeOrgEntityStore = (): OrgEntityStore => {
           : "";
 
       const rowsStartedAtOneHop = Date.now();
-      const rowsRes = yield* Effect.tryPromise({
-        try: () => {
-          const started = Date.now();
-          // keyset/order handled inline in query text below
-          if (displayCol && statusCol) {
-            const ks = keyset ? safeLiteral(keyset) : undefined;
-            const anchor = safeLiteral(filter.anchorUserEntityId);
-            const q = `SELECT r.${targetCol} as entity_id,
-                          e.${displayCol} as display_name,
-                          e.${statusCol} as status,
-                          ${jsonColumnsExpr}
-                          1 as __dummy__
+      const ks = keyset ? safeLiteral(keyset) : undefined;
+      const anchor = safeLiteral(filter.anchorUserEntityId);
+      const selectCols = [
+        `r.${targetCol} as entity_id`,
+        displayCol ? `e.${displayCol} as display_name` : undefined,
+        statusCol ? `e.${statusCol} as status` : undefined,
+        jsonColumnsExpr ? jsonColumnsExpr : undefined,
+        "1 as __dummy__",
+      ]
+        .filter(Boolean)
+        .join(",\n                          ");
+      const baseWhere = `WHERE r.${anchorCol} = '${anchor ?? ""}' AND r.${META.IS_DELETED} = false`;
+      const keysetFrag = ks
+        ? order === "asc"
+          ? `AND r.${targetCol} > '${ks}'`
+          : `AND r.${targetCol} < '${ks}'`
+        : "";
+      const q = `SELECT ${selectCols}
                        FROM ${relTable} as r
                        INNER JOIN ${entTable} as e
                          ON e.${META.ENTITY_ID} = r.${targetCol} AND e.${META.IS_DELETED} = false
-                        WHERE r.${anchorCol} = '${anchor ?? ""}'
-                         AND r.${META.IS_DELETED} = false
-                         ${ks ? (order === "asc" ? `AND r.${targetCol} > '${ks}'` : `AND r.${targetCol} < '${ks}'`) : ""}
+                        ${baseWhere}
+                         ${keysetFrag}
                        ORDER BY r.${targetCol} ${order === "asc" ? "ASC" : "DESC"}
                        LIMIT ${limit} OFFSET ${offset}`;
-            return orgDb.execute(sql.raw(q));
-          }
-          if (displayCol && !statusCol) {
-            const ks = keyset ? safeLiteral(keyset) : undefined;
-            const anchor = safeLiteral(filter.anchorUserEntityId);
-            const q = `SELECT r.${targetCol} as entity_id,
-                          e.${displayCol} as display_name,
-                          ${jsonColumnsExpr}
-                          1 as __dummy__
-                       FROM ${relTable} as r
-                       INNER JOIN ${entTable} as e
-                         ON e.${META.ENTITY_ID} = r.${targetCol} AND e.${META.IS_DELETED} = false
-                        WHERE r.${anchorCol} = '${anchor ?? ""}'
-                         AND r.${META.IS_DELETED} = false
-                         ${ks ? (order === "asc" ? `AND r.${targetCol} > '${ks}'` : `AND r.${targetCol} < '${ks}'`) : ""}
-                       ORDER BY r.${targetCol} ${order === "asc" ? "ASC" : "DESC"}
-                       LIMIT ${limit} OFFSET ${offset}`;
-            return orgDb.execute(sql.raw(q));
-          }
-          const ks = keyset ? safeLiteral(keyset) : undefined;
-          const anchor = safeLiteral(filter.anchorUserEntityId);
-          const q = `SELECT r.${targetCol} as entity_id,
-                         ${jsonColumnsExpr}
-                         1 as __dummy__
-                      FROM ${relTable} as r
-                      INNER JOIN ${entTable} as e
-                        ON e.${META.ENTITY_ID} = r.${targetCol} AND e.${META.IS_DELETED} = false
-                      WHERE r.${anchorCol} = '${anchor ?? ""}'
-                        AND r.${META.IS_DELETED} = false
-                        ${ks ? (order === "asc" ? `AND r.${targetCol} > '${ks}'` : `AND r.${targetCol} < '${ks}'`) : ""}
-                      ORDER BY r.${targetCol} ${order === "asc" ? "ASC" : "DESC"}
-                      LIMIT ${limit} OFFSET ${offset}`;
-          return orgDb.execute(sql.raw(q));
-        },
-        catch: (cause) => makeDbError("Org one-hop query failed", cause),
-      });
+      const rowsRes = yield* Effect.promise(() =>
+        orgDb.execute(sql.raw(q)),
+      ).pipe(
+        Effect.catchAll((cause) =>
+          Effect.fail(makeDbError("Org one-hop query failed", cause)),
+        ),
+      );
 
       const rowsElapsedMsOneHop = Date.now() - rowsStartedAtOneHop;
-      const countRes = yield* Effect.tryPromise({
-        try: () =>
-          orgDb.execute(
-            sql`SELECT COUNT(*)::int as cnt
+      const countRes = yield* Effect.promise(() =>
+        orgDb.execute(
+          sql`SELECT COUNT(*)::int as cnt
             FROM ${sql.raw(relTable)} as r
             INNER JOIN ${sql.raw(entTable)} as e
               ON e.${sql.raw(META.ENTITY_ID)} = r.${sql.raw(targetCol)} AND e.${sql.raw(META.IS_DELETED)} = false
             WHERE r.${sql.raw(anchorCol)} = ${filter.anchorUserEntityId}
               AND r.${sql.raw(META.IS_DELETED)} = false`,
-          ),
-        catch: (cause) => makeDbError("Org count query failed", cause),
-      });
-
-      const RowsSchema = S.Struct({
-        rows: S.Array(
-          S.Struct({
-            entity_id: S.String,
-            display_name: S.optional(S.String),
-            status: S.optional(S.String),
-            columns: S.optional(S.Record({ key: S.String, value: S.Unknown })),
-          }),
         ),
+      ).pipe(
+        Effect.catchAll((cause) =>
+          Effect.fail(makeDbError("Org count query failed", cause)),
+        ),
+      );
+
+      const RowSchema = S.Struct({
+        entity_id: S.String,
+        display_name: S.optional(S.String),
+        status: S.optional(S.String),
+        columns: S.optional(S.Record({ key: S.String, value: S.Unknown })),
       });
-      const CountSchema = S.Struct({
-        rows: S.Array(S.Struct({ cnt: S.Union(S.Number, S.String) })),
-      });
-      const decodedRows = S.decodeUnknownSync(RowsSchema)(rowsRes);
-      const decodedCount = S.decodeUnknownSync(CountSchema)(countRes);
-      const firstCnt = decodedCount.rows[0]?.cnt;
+      const CountRow = S.Struct({ cnt: S.Union(S.Number, S.String) });
+      const ids = (yield* decodeRows(rowsRes, RowSchema, "one-hop")) as readonly {
+        readonly entity_id: string;
+        readonly display_name?: string | undefined;
+        readonly status?: string | undefined;
+        readonly columns?: Readonly<Record<string, unknown>> | undefined;
+      }[];
+      const decodedCount = (yield* decodeRows(
+        countRes,
+        CountRow,
+        "one-hop-count",
+      )) as readonly { readonly cnt: number | string }[];
+      const firstCnt = decodedCount[0]?.cnt;
       const total =
         typeof firstCnt === "string" ? Number(firstCnt) : (firstCnt ?? 0);
       const totalPages = total === 0 ? 0 : Math.ceil(total / page.pageSize);
-      const ids = decodedRows.rows;
 
       yield* Effect.log(
         `OrgEntityStore.oneHop org=${organizationId} relTable=${relTable} entTable=${entTable} dir=${filter.direction} total=${total} rows_ms=${rowsElapsedMsOneHop}`,
@@ -497,25 +497,23 @@ export const makeOrgEntityStore = (): OrgEntityStore => {
             totalNumberPages: 0,
           } as const;
         }
-        const relRow = yield* Effect.tryPromise({
-          try: () =>
-            builderDb
-              .select({
-                version_id: dbSchema.data_model_entity_relation.version_id,
-                a: dbSchema.data_model_entity_relation.entity_type_id_a,
-                b: dbSchema.data_model_entity_relation.entity_type_id_b,
-              })
-              .from(dbSchema.data_model_entity_relation)
-              .where(
-                eq(
-                  dbSchema.data_model_entity_relation.version_id,
-                  relVersionId,
-                ),
-              )
-              .limit(1),
-          catch: (cause) =>
-            makeDbError("Failed to load relation version", cause),
-        });
+        const relRow = yield* Effect.tryPromise(() =>
+          builderDb
+            .select({
+              version_id: dbSchema.data_model_entity_relation.version_id,
+              a: dbSchema.data_model_entity_relation.entity_type_id_a,
+              b: dbSchema.data_model_entity_relation.entity_type_id_b,
+            })
+            .from(dbSchema.data_model_entity_relation)
+            .where(
+              eq(dbSchema.data_model_entity_relation.version_id, relVersionId),
+            )
+            .limit(1),
+        ).pipe(
+          Effect.catchAll((cause) =>
+            Effect.fail(makeDbError("Failed to load relation version", cause)),
+          ),
+        );
         const rel = relRow[0];
         if (!rel) {
           return {
@@ -548,26 +546,29 @@ export const makeOrgEntityStore = (): OrgEntityStore => {
 
       const entTable = entityTableName(versionType, targetEntityTypeVersionId);
       // Get display/status cols
-      const targetRows = yield* Effect.tryPromise({
-        try: () =>
-          builderDb
-            .select({
-              display_col:
-                dbSchema.data_model_entity_type_version.display_name_column_id,
-              status_col:
-                dbSchema.data_model_entity_type_version.status_column_id,
-            })
-            .from(dbSchema.data_model_entity_type_version)
-            .where(
-              eq(
-                dbSchema.data_model_entity_type_version.version_id,
-                targetEntityTypeVersionId,
-              ),
-            )
-            .limit(1),
-        catch: (cause) =>
-          makeDbError("Failed to load target entity version", cause),
-      });
+      const targetRows = yield* Effect.tryPromise(() =>
+        builderDb
+          .select({
+            display_col:
+              dbSchema.data_model_entity_type_version.display_name_column_id,
+            status_col:
+              dbSchema.data_model_entity_type_version.status_column_id,
+          })
+          .from(dbSchema.data_model_entity_type_version)
+          .where(
+            eq(
+              dbSchema.data_model_entity_type_version.version_id,
+              targetEntityTypeVersionId,
+            ),
+          )
+          .limit(1),
+      ).pipe(
+        Effect.catchAll((cause) =>
+          Effect.fail(
+            makeDbError("Failed to load target entity version", cause),
+          ),
+        ),
+      );
       const targetVer = targetRows[0];
       const displayColRaw = targetVer?.display_col
         ? columnSqlName(targetVer.display_col)
@@ -665,39 +666,46 @@ INNER JOIN reachable s ON e.${META.ENTITY_ID} = s.entity_id AND e.${META.IS_DELE
 WHERE s.depth = ${stepVersions.length}`;
 
       const rowsStartedAt2 = Date.now();
-      const rowsRes = yield* Effect.tryPromise({
-        try: () => orgDb.execute(sql.raw(selectSql)),
-        catch: (cause) => makeDbError("Org multi-hop query failed", cause),
-      });
+      const rowsRes = yield* Effect.promise(() =>
+        orgDb.execute(sql.raw(selectSql)),
+      ).pipe(
+        Effect.catchAll((cause) =>
+          Effect.fail(makeDbError("Org multi-hop query failed", cause)),
+        ),
+      );
       const rowsElapsedMs2 = Date.now() - rowsStartedAt2;
       const countStartedAt2 = Date.now();
-      const countRes = yield* Effect.tryPromise({
-        try: () => orgDb.execute(sql.raw(countSql)),
-        catch: (cause) =>
-          makeDbError("Org multi-hop count query failed", cause),
-      });
+      const countRes = yield* Effect.promise(() =>
+        orgDb.execute(sql.raw(countSql)),
+      ).pipe(
+        Effect.catchAll((cause) =>
+          Effect.fail(makeDbError("Org multi-hop count query failed", cause)),
+        ),
+      );
       const countElapsedMs2 = Date.now() - countStartedAt2;
 
-      const RowsSchema = S.Struct({
-        rows: S.Array(
-          S.Struct({
-            entity_id: S.String,
-            display_name: S.optional(S.String),
-            status: S.optional(S.String),
-            columns: S.optional(S.Record({ key: S.String, value: S.Unknown })),
-          }),
-        ),
+      const RowSchema = S.Struct({
+        entity_id: S.String,
+        display_name: S.optional(S.String),
+        status: S.optional(S.String),
+        columns: S.optional(S.Record({ key: S.String, value: S.Unknown })),
       });
-      const CountSchema = S.Struct({
-        rows: S.Array(S.Struct({ cnt: S.Union(S.Number, S.String) })),
-      });
-      const decodedRows = S.decodeUnknownSync(RowsSchema)(rowsRes);
-      const decodedCount = S.decodeUnknownSync(CountSchema)(countRes);
-      const firstCnt = decodedCount.rows[0]?.cnt;
+      const CountRow = S.Struct({ cnt: S.Union(S.Number, S.String) });
+      const ids = (yield* decodeRows(rowsRes, RowSchema, "multi-hop")) as readonly {
+        readonly entity_id: string;
+        readonly display_name?: string | undefined;
+        readonly status?: string | undefined;
+        readonly columns?: Readonly<Record<string, unknown>> | undefined;
+      }[];
+      const decodedCount = (yield* decodeRows(
+        countRes,
+        CountRow,
+        "multi-hop-count",
+      )) as readonly { readonly cnt: number | string }[];
+      const firstCnt = decodedCount[0]?.cnt;
       const total =
         typeof firstCnt === "string" ? Number(firstCnt) : (firstCnt ?? 0);
       const totalPages = total === 0 ? 0 : Math.ceil(total / page.pageSize);
-      const ids = decodedRows.rows;
 
       yield* Effect.log(
         `OrgEntityStore.multiHop org=${organizationId} steps=${stepVersions.length} entTable=${entTable} total=${total} rows_ms=${rowsElapsedMs2} count_ms=${countElapsedMs2}`,
@@ -825,10 +833,9 @@ WHERE s.depth = ${stepVersions.length}`;
           ? `AND e.${META.ENTITY_ID} > '${ks3}'`
           : `AND e.${META.ENTITY_ID} < '${ks3}'`
         : "";
-      const rowsRes = yield* Effect.tryPromise({
-        try: () => {
-          if (displayCol && statusCol) {
-            const q = `SELECT e.${META.ENTITY_ID} as entity_id,
+      const rowsRes = yield* Effect.promise(() => {
+        if (displayCol && statusCol) {
+          const q = `SELECT e.${META.ENTITY_ID} as entity_id,
                           e.${displayCol} as display_name,
                           e.${statusCol} as status,
                           ${jsonColumnsExpr}
@@ -837,10 +844,10 @@ WHERE s.depth = ${stepVersions.length}`;
                        WHERE e.${META.IS_DELETED} = false ${keysetFilter}
                        ORDER BY e.${META.ENTITY_ID} ${order === "asc" ? "ASC" : "DESC"}
                        LIMIT ${limit} OFFSET ${offset}`;
-            return orgDb.execute(sql.raw(q));
-          }
-          if (displayCol && !statusCol) {
-            const q = `SELECT e.${META.ENTITY_ID} as entity_id,
+          return orgDb.execute(sql.raw(q));
+        }
+        if (displayCol && !statusCol) {
+          const q = `SELECT e.${META.ENTITY_ID} as entity_id,
                           e.${displayCol} as display_name,
                           ${jsonColumnsExpr}
                           1 as __dummy__
@@ -848,52 +855,57 @@ WHERE s.depth = ${stepVersions.length}`;
                        WHERE e.${META.IS_DELETED} = false ${keysetFilter}
                        ORDER BY e.${META.ENTITY_ID} ${order === "asc" ? "ASC" : "DESC"}
                        LIMIT ${limit} OFFSET ${offset}`;
-            return orgDb.execute(sql.raw(q));
-          }
-          const q = `SELECT e.${META.ENTITY_ID} as entity_id,
+          return orgDb.execute(sql.raw(q));
+        }
+        const q = `SELECT e.${META.ENTITY_ID} as entity_id,
                          ${jsonColumnsExpr}
                          1 as __dummy__
                       FROM ${entTable} as e
                       WHERE e.${META.IS_DELETED} = false ${keysetFilter}
                       ORDER BY e.${META.ENTITY_ID} ${order === "asc" ? "ASC" : "DESC"}
                       LIMIT ${limit} OFFSET ${offset}`;
-          return orgDb.execute(sql.raw(q));
-        },
-        catch: (cause) => makeDbError("Org all-of-type query failed", cause),
-      });
+        return orgDb.execute(sql.raw(q));
+      }).pipe(
+        Effect.catchAll((cause) =>
+          Effect.fail(makeDbError("Org all-of-type query failed", cause)),
+        ),
+      );
       // omitted timing capture for allowAll to reduce overhead
 
-      const countRes = yield* Effect.tryPromise({
-        try: () =>
-          orgDb.execute(
-            sql`SELECT COUNT(*)::int as cnt
+      const countRes = yield* Effect.promise(() =>
+        orgDb.execute(
+          sql`SELECT COUNT(*)::int as cnt
                 FROM ${sql.raw(entTable)} as e
                 WHERE e.${sql.raw(META.IS_DELETED)} = false`,
-          ),
-        catch: (cause) =>
-          makeDbError("Org all-of-type count query failed", cause),
-      });
-
-      const RowsSchema2 = S.Struct({
-        rows: S.Array(
-          S.Struct({
-            entity_id: S.String,
-            display_name: S.optional(S.String),
-            status: S.optional(S.String),
-            columns: S.optional(S.Record({ key: S.String, value: S.Unknown })),
-          }),
         ),
+      ).pipe(
+        Effect.catchAll((cause) =>
+          Effect.fail(makeDbError("Org all-of-type count query failed", cause)),
+        ),
+      );
+
+      const RowSchema2 = S.Struct({
+        entity_id: S.String,
+        display_name: S.optional(S.String),
+        status: S.optional(S.String),
+        columns: S.optional(S.Record({ key: S.String, value: S.Unknown })),
       });
-      const CountSchema2 = S.Struct({
-        rows: S.Array(S.Struct({ cnt: S.Union(S.Number, S.String) })),
-      });
-      const decodedRows2 = S.decodeUnknownSync(RowsSchema2)(rowsRes);
-      const decodedCount2 = S.decodeUnknownSync(CountSchema2)(countRes);
-      const firstCnt2 = decodedCount2.rows[0]?.cnt;
+      const CountRow2 = S.Struct({ cnt: S.Union(S.Number, S.String) });
+      const ids = (yield* decodeRows(rowsRes, RowSchema2, "all-of-type")) as readonly {
+        readonly entity_id: string;
+        readonly display_name?: string | undefined;
+        readonly status?: string | undefined;
+        readonly columns?: Readonly<Record<string, unknown>> | undefined;
+      }[];
+      const decodedCount2 = (yield* decodeRows(
+        countRes,
+        CountRow2,
+        "all-of-type-count",
+      )) as readonly { readonly cnt: number | string }[];
+      const firstCnt2 = decodedCount2[0]?.cnt;
       const total =
         typeof firstCnt2 === "string" ? Number(firstCnt2) : (firstCnt2 ?? 0);
       const totalPages = total === 0 ? 0 : Math.ceil(total / page.pageSize);
-      const ids = decodedRows2.rows;
       yield* Effect.log(
         `OrgEntityStore.allowAll org=${organizationId} entTable=${entTable} total=${total}`,
       );
@@ -950,15 +962,18 @@ WHERE s.depth = ${stepVersions.length}`;
                  FROM ${entTable} as e
                  WHERE e.${col} = '${safeVal}' AND e.${META.IS_DELETED} = false
                  LIMIT 1`;
-      const res = yield* Effect.tryPromise({
-        try: () => orgDb.execute(sql.raw(q)),
-        catch: (cause) => makeDbError("Org findByColumnEquals failed", cause),
-      });
-      const RowsSchema = S.Struct({
-        rows: S.Array(S.Struct({ entity_id: S.String })),
-      });
-      const decoded = S.decodeUnknownSync(RowsSchema)(res);
-      return decoded.rows[0]?.entity_id;
+      const res = yield* Effect.promise(() => orgDb.execute(sql.raw(q))).pipe(
+        Effect.catchAll((cause) =>
+          Effect.fail(makeDbError("Org findByColumnEquals failed", cause)),
+        ),
+      );
+      const RowSchema = S.Struct({ entity_id: S.String });
+      const decoded = (yield* decodeRows(
+        res,
+        RowSchema,
+        "find-by-column",
+      )) as readonly { readonly entity_id: string }[];
+      return decoded[0]?.entity_id;
     }).pipe(
       Effect.withSpan("OrgEntityStore.findByColumnEquals", {
         attributes: { orgId: organizationId, versionType, targetEntityTypeId },

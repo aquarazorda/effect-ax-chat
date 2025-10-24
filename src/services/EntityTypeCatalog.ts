@@ -12,6 +12,11 @@ import type {
   EntityTypeId,
   EntityTypeVersionId,
 } from "../db/ids";
+import {
+  EntityTypeIdSchema,
+  EntityTypeVersionIdSchema,
+} from "../db/ids";
+import * as S from "effect/Schema";
 
 export interface CatalogEntityType {
   readonly id: EntityTypeId;
@@ -95,12 +100,14 @@ export const makeEntityTypeCatalog = (): EntityTypeCatalog => {
       const seen = new Set<string>();
       const result: CatalogEntityType[] = [];
       for (const r of rows) {
-        const key = r.entity_type_id as unknown as string;
+        const key = S.decodeUnknownSync(S.String)(r.entity_type_id);
         if (seen.has(key)) continue;
         seen.add(key);
         result.push({
-          id: r.entity_type_id as EntityTypeId,
-          versionId: r.entity_type_version_id as EntityTypeVersionId,
+          id: S.decodeUnknownSync(EntityTypeIdSchema)(r.entity_type_id),
+          versionId: S.decodeUnknownSync(EntityTypeVersionIdSchema)(
+            r.entity_type_version_id,
+          ),
           name: r.name,
           pluralName: r.plural_name,
           description: r.description ?? undefined,

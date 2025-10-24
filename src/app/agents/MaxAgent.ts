@@ -359,6 +359,9 @@ export const makeMaxAgent: AgentFactory<
             const pageNumber = params.pageNumber ?? 0;
             const pageSize = params.pageSize ?? 20;
             // Plan authorizations and derive a minimal filter; inject anchor id
+            const targetEntityTypeId = S.decodeUnknownSync(EntityTypeIdSchema)(
+              params.entityTypeId,
+            );
             const planOk = await Runtime.runPromise(
               runtime,
               Effect.flatMap(PermissionEngineTag, (e) =>
@@ -368,7 +371,7 @@ export const makeMaxAgent: AgentFactory<
                       env.DEMO_ORG_ID,
                     ),
                     versionType: S.decodeUnknownSync(VersionTypeSchema)("prod"),
-                    entityTypeId: params.entityTypeId as any,
+                    entityTypeId: targetEntityTypeId,
                     subject: { type: "read" },
                   })
                   .pipe(Effect.map((p) => ({ _tag: "ok" as const, plan: p })))
@@ -393,7 +396,7 @@ export const makeMaxAgent: AgentFactory<
                 for (const t of plan.traversal) {
                   if (t.steps.length > 1) {
                     return Option.some({
-                      targetEntityTypeId: params.entityTypeId as any,
+                      targetEntityTypeId,
                       steps: t.steps.map((s) => ({
                         relationId: s.relationId,
                         direction: s.direction,
@@ -416,7 +419,7 @@ export const makeMaxAgent: AgentFactory<
                   if (t.steps.length === 1) {
                     const s0 = t.steps[0]!;
                     return Option.some({
-                      targetEntityTypeId: params.entityTypeId as any,
+                      targetEntityTypeId,
                       relationId: s0.relationId,
                       direction: s0.direction,
                       anchorUserEntityId:
@@ -491,10 +494,14 @@ export const makeMaxAgent: AgentFactory<
               runtime,
               Effect.flatMap(OrgEntityStoreTag, (s) =>
                 s.findByColumnEquals({
-                  organizationId: env.DEMO_ORG_ID as any,
-                  versionType: "prod" as any,
-                  targetEntityTypeId: entityTypeId,
-                  columnId: columnId as any,
+                  organizationId: S.decodeUnknownSync(OrganizationIdSchema)(
+                    env.DEMO_ORG_ID,
+                  ),
+                  versionType: S.decodeUnknownSync(VersionTypeSchema)("prod"),
+                  targetEntityTypeId: S.decodeUnknownSync(EntityTypeIdSchema)(
+                    entityTypeId,
+                  ),
+                  columnId: S.decodeUnknownSync(ColumnIdSchema)(columnId),
                   value,
                 }),
               ),

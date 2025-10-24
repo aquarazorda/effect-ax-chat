@@ -29,22 +29,13 @@ export const AppEnvSchema = S.Struct({
   DATABASE_ENCRYPTION_KEY_B64: S.optional(S.String),
   DATABASE_ENCRYPTION_IV_LENGTH: S.optional(S.String),
 
-  // Optional: choose DB driver for Builder DB connection
-  // "neon" (default) or "pglite" (in-memory / local)
+  // Choose DB driver for Builder DB connection: "neon" (default) or Node Postgres ("pg" | "node" | "node-pg")
   DB_DRIVER: S.optional(
-    S.Union(
-      S.Literal("neon"),
-      S.Literal("pglite"),
-      S.Literal("bun"),
-      S.Literal("bun-sql"),
-      S.Literal("local"),
-    ),
+    S.Union(S.Literal("neon"), S.Literal("pg"), S.Literal("node"), S.Literal("node-pg")),
   ),
 
-  // Optional: PGlite persistence/restore settings for local clones
-  // If set, PGlite will use this directory for data storage
+  // Deprecated: pglite options (unused when DB_DRIVER != 'pglite')
   PGLITE_DATA_DIR: S.optional(S.String),
-  // If set, PGlite will restore from this SQL file when starting (only if needed)
   PGLITE_RESTORE_PATH: S.optional(S.String),
 });
 export type AppEnv = typeof AppEnvSchema.Type;
