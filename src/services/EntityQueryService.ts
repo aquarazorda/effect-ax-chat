@@ -41,6 +41,7 @@ export const QueryConfigSchema = S.Struct({
   linkToken: S.optional(S.String),
   cursorEntityId: S.optional(S.String),
   order: S.optional(S.Union(S.Literal("asc"), S.Literal("desc"))),
+  selectColumns: S.optional(S.Array(S.String)),
 });
 export type QueryConfig = typeof QueryConfigSchema.Type;
 
@@ -297,6 +298,23 @@ export const makeEntityQueryService = (): EntityQueryService => {
           return filtered;
         });
 
+      // Optional projection helper: restrict to a small set of explicitly requested columns
+      const makeProjectColumns = (
+        allowed: ReadonlySet<ColumnId>,
+      ): ReadonlySet<ColumnId> | undefined => {
+        const sel = config.selectColumns;
+        if (!sel || sel.length === 0) return undefined;
+        const out = new Set<ColumnId>();
+        // cap to max 5
+        for (const v of sel.slice(0, 5)) {
+          try {
+            const cid = S.decodeUnknownSync(ColumnIdSchema)(v);
+            if (allowed.size === 0 || allowed.has(cid)) out.add(cid);
+          } catch {}
+        }
+        return out.size > 0 ? out : undefined;
+      };
+
       // If allowAll, fetch all entities of target type
       if (plan.mode === "allowAll") {
         // compute allowed set for pushdown (may be empty meaning unrestricted)
@@ -311,6 +329,7 @@ export const makeEntityQueryService = (): EntityQueryService => {
             targetEntityTypeId: query.entityTypeId,
             config,
             allowedColumns: allowedSet,
+            projectColumns: makeProjectColumns(allowedSet),
             page,
           })
           .pipe(
@@ -348,6 +367,7 @@ export const makeEntityQueryService = (): EntityQueryService => {
             filter: multiHop.value,
             config,
             allowedColumns: allowedSet,
+            projectColumns: makeProjectColumns(allowedSet),
             page,
           })
           .pipe(
@@ -381,6 +401,7 @@ export const makeEntityQueryService = (): EntityQueryService => {
             filter: oneHop.value,
             config,
             allowedColumns: allowedSet,
+            projectColumns: makeProjectColumns(allowedSet),
             page,
           })
           .pipe(

@@ -31,7 +31,12 @@ export const AppEnvSchema = S.Struct({
 
   // Choose DB driver for Builder DB connection: "neon" (default) or Node Postgres ("pg" | "node" | "node-pg")
   DB_DRIVER: S.optional(
-    S.Union(S.Literal("neon"), S.Literal("pg"), S.Literal("node"), S.Literal("node-pg")),
+    S.Union(
+      S.Literal("neon"),
+      S.Literal("pg"),
+      S.Literal("node"),
+      S.Literal("node-pg"),
+    ),
   ),
 
   // Deprecated: pglite options (unused when DB_DRIVER != 'pglite')

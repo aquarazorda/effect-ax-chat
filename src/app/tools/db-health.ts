@@ -57,7 +57,10 @@ const program = Effect.gen(function* () {
       .innerJoin(et, eq(et.id, etv.id))
       .where(
         and(
-          eq(vref.organization_id, S.decodeUnknownSync(OrganizationIdSchema)(orgId)),
+          eq(
+            vref.organization_id,
+            S.decodeUnknownSync(OrganizationIdSchema)(orgId),
+          ),
           eq(vref.table_name, "builder.data_model_entity_type"),
           eq(vref.version_type, "prod"),
         ),
@@ -74,7 +77,10 @@ const program = Effect.gen(function* () {
       .from(vref)
       .where(
         and(
-          eq(vref.organization_id, S.decodeUnknownSync(OrganizationIdSchema)(orgId)),
+          eq(
+            vref.organization_id,
+            S.decodeUnknownSync(OrganizationIdSchema)(orgId),
+          ),
           eq(vref.table_name, "builder.data_model_entity_relation"),
           eq(vref.version_type, "prod"),
         ),
@@ -112,7 +118,9 @@ const program = Effect.gen(function* () {
         }
       })();
       const cnt = rows[0]?.cnt;
-      console.log(`${tableName} exists: count=${typeof cnt === "string" ? Number(cnt) : (cnt ?? 0)}`);
+      console.log(
+        `${tableName} exists: count=${typeof cnt === "string" ? Number(cnt) : (cnt ?? 0)}`,
+      );
     }
   } catch (e) {
     console.error("org db probe failed:", e);

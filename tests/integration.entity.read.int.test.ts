@@ -57,6 +57,7 @@ async function requireEnv() {
 }
 
 const vtProd = S.decodeUnknownSync(VersionTypeSchema)("prod");
+const vtProdStrict = "prod" as const;
 
 async function listTypes(): Promise<ReadonlyArray<CatalogEntityType>> {
   await requireEnv();
@@ -64,7 +65,7 @@ async function listTypes(): Promise<ReadonlyArray<CatalogEntityType>> {
   const rows = (await Effect.runPromise(
     withLayer(
       Effect.flatMap(EntityTypeCatalogTag, (c) =>
-        c.listEntityTypes({ organizationId: orgId, versionType: vtProd }),
+        c.listEntityTypes({ organizationId: orgId, versionType: vtProdStrict }),
       ),
     ),
   )) as ReadonlyArray<CatalogEntityType>;
@@ -82,7 +83,7 @@ async function listCols(
       Effect.flatMap(EntityTypeCatalogTag, (c) =>
         c.listColumns({
           organizationId: orgId,
-          versionType: vtProd,
+          versionType: vtProdStrict,
           entityTypeId,
         }),
       ),

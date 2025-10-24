@@ -65,7 +65,7 @@ Known Exceptions
 - When in doubt about database behavior or naming, consult the sibling repo `../archetype` as the canonical source of truth. Mirror its:
   - Schema naming (fully‑qualified builder schema tables),
   - Version mapping semantics (how `builder.version_refs` is populated and joined),
-  - Org data table naming conventions (entity_/relation_ prefixes, version id normalization, column prefixes).
+  - Org data table naming conventions (entity*/relation* prefixes, version id normalization, column prefixes).
 - Prefer the same driver strategy as archetype in app/runtime code (node‑postgres via `drizzle-orm/node-postgres` for local/dev) and only localize unavoidable casts inside `src/db/connect.ts`.
 - Join patterns for builder metadata should reflect archetype’s approach:
   - Resolve mapped versions via `version_refs` rows for the specific table, organization, and versionType.

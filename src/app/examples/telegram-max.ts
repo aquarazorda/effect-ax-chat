@@ -8,8 +8,7 @@ import {
   SessionRegistryTag,
 } from "../../runtime/SessionRegistry";
 import { ChatClientTag } from "../../clients/ChatClient";
-import { makeMaxAgent } from "../agents/MaxAgent";
-import type { AgentFactory } from "../../runtime/Session";
+import { makeMaxAgent } from "../../ai/agents/MaxAgent";
 import { makeBuilderDbLayer, makeOrgDbResolverLayer } from "../../db/connect";
 import { makeAuthorizationServiceLayer } from "../../permissions/Authorization";
 import { makePermissionEngineLayer } from "../../permissions/PermissionEngine";

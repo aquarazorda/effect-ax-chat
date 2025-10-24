@@ -33,6 +33,27 @@ export interface OrgEntityStore {
     readonly filter: OneHopFilterPlan;
     readonly config: QueryConfig;
     readonly allowedColumns?: ReadonlySet<ColumnId>;
+    // Optional: restrict projected extra columns (besides display/status)
+    readonly projectColumns?: ReadonlySet<ColumnId>;
+    readonly page: Page;
+  }) => Effect.Effect<
+    QueryEntitiesResult,
+    DbError,
+    OrgDbResolverTag | BuilderDbTag
+  >;
+
+  readonly findEntities: (args: {
+    readonly organizationId: OrganizationId;
+    readonly versionType: VersionType;
+    readonly targetEntityTypeId: EntityTypeId;
+    readonly filters: ReadonlyArray<{
+      readonly columnId: ColumnId;
+      readonly op: "eq" | "ilike";
+      readonly value: string;
+    }>;
+    readonly config: QueryConfig;
+    readonly allowedColumns?: ReadonlySet<ColumnId>;
+    readonly projectColumns?: ReadonlySet<ColumnId>;
     readonly page: Page;
   }) => Effect.Effect<
     QueryEntitiesResult,
@@ -46,6 +67,8 @@ export interface OrgEntityStore {
     readonly filter: MultiHopFilterPlan;
     readonly config: QueryConfig;
     readonly allowedColumns?: ReadonlySet<ColumnId>;
+    // Optional: restrict projected extra columns (besides display/status)
+    readonly projectColumns?: ReadonlySet<ColumnId>;
     readonly page: Page;
   }) => Effect.Effect<
     QueryEntitiesResult,
@@ -59,6 +82,8 @@ export interface OrgEntityStore {
     readonly targetEntityTypeId: EntityTypeId;
     readonly config: QueryConfig;
     readonly allowedColumns?: ReadonlySet<ColumnId>;
+    // Optional: restrict projected extra columns (besides display/status)
+    readonly projectColumns?: ReadonlySet<ColumnId>;
     readonly page: Page;
   }) => Effect.Effect<
     QueryEntitiesResult,
@@ -332,6 +357,7 @@ export const makeOrgEntityStore = (): OrgEntityStore => {
     filter,
     config,
     allowedColumns,
+    projectColumns,
     page,
   }) =>
     Effect.gen(function* () {
@@ -461,7 +487,23 @@ export const makeOrgEntityStore = (): OrgEntityStore => {
 
       // Build optional JSON columns projection for allowedColumns beyond display/status
       const extraCols: string[] = [];
-      if (allowedColumns && allowedColumns.size > 0) {
+      // Prefer explicit projection if provided, intersected with allowed
+      if (projectColumns && projectColumns.size > 0) {
+        for (const col of projectColumns) {
+          if (
+            (targetVer.display_col && col === targetVer.display_col) ||
+            (targetVer.status_col && col === targetVer.status_col)
+          )
+            continue;
+          if (
+            !allowedColumns ||
+            allowedColumns.size === 0 ||
+            allowedColumns.has(col)
+          ) {
+            extraCols.push(col);
+          }
+        }
+      } else if (allowedColumns && allowedColumns.size > 0) {
         for (const col of allowedColumns) {
           if (
             (targetVer.display_col && col === targetVer.display_col) ||
@@ -591,6 +633,7 @@ export const makeOrgEntityStore = (): OrgEntityStore => {
     filter,
     config,
     allowedColumns,
+    projectColumns,
     page,
   }) =>
     Effect.gen(function* () {
@@ -865,6 +908,7 @@ WHERE s.depth = ${stepVersions.length}`;
     targetEntityTypeId,
     config,
     allowedColumns,
+    projectColumns,
     page,
   }) =>
     Effect.gen(function* () {
@@ -930,7 +974,9 @@ WHERE s.depth = ${stepVersions.length}`;
         ? yield* resolveColumnSqlName(orgDb, entTable, ver.status_col)
         : undefined;
       const displayCol =
-        allowedColumns && ver.display_col && !allowedColumns.has(ver.display_col)
+        allowedColumns &&
+        ver.display_col &&
+        !allowedColumns.has(ver.display_col)
           ? undefined
           : resolvedDisplay;
       const statusCol =
@@ -944,7 +990,23 @@ WHERE s.depth = ${stepVersions.length}`;
       const order = config.order ?? "asc";
       const keyset = config.cursorEntityId;
       const extraCols: string[] = [];
-      if (allowedColumns && allowedColumns.size > 0) {
+      if (projectColumns && projectColumns.size > 0) {
+        for (const col of projectColumns) {
+          if (
+            (ver.display_col && col === ver.display_col) ||
+            (ver.status_col && col === ver.status_col)
+          )
+            continue;
+          if (
+            !allowedColumns ||
+            allowedColumns.size === 0 ||
+            allowedColumns.has(col)
+          ) {
+            const phys = yield* resolveColumnSqlName(orgDb, entTable, col);
+            extraCols.push(phys);
+          }
+        }
+      } else if (allowedColumns && allowedColumns.size > 0) {
         for (const col of allowedColumns) {
           if (
             (ver.display_col && col === ver.display_col) ||
@@ -1131,11 +1193,243 @@ WHERE s.depth = ${stepVersions.length}`;
       }),
     );
 
+  const findEntities: OrgEntityStore["findEntities"] = ({
+    organizationId,
+    versionType,
+    targetEntityTypeId,
+    filters,
+    config,
+    allowedColumns,
+    projectColumns,
+    page,
+  }) =>
+    Effect.gen(function* () {
+      const builderDb: BuilderDatabase = yield* BuilderDbTag;
+      const targetEntityTypeVersionId = yield* resolveEntityTypeVersionId(
+        builderDb,
+        organizationId,
+        versionType,
+        targetEntityTypeId,
+      );
+      if (!targetEntityTypeVersionId) {
+        return {
+          entities: [],
+          totalNumberEntities: 0,
+          totalNumberPages: 0,
+        } as const;
+      }
+
+      const resolver = yield* OrgDbResolverTag;
+      const orgDb = yield* resolver.get(organizationId);
+      const entTable = yield* resolveEntityTableName(
+        orgDb,
+        versionType,
+        targetEntityTypeVersionId,
+      );
+      if (!entTable) {
+        return {
+          entities: [],
+          totalNumberEntities: 0,
+          totalNumberPages: 0,
+        } as const;
+      }
+
+      // Resolve display/status
+      const verRows = yield* Effect.tryPromise(() =>
+        builderDb
+          .select({
+            display_col:
+              dbSchema.data_model_entity_type_version.display_name_column_id,
+            status_col:
+              dbSchema.data_model_entity_type_version.status_column_id,
+          })
+          .from(dbSchema.data_model_entity_type_version)
+          .where(
+            eq(
+              dbSchema.data_model_entity_type_version.version_id,
+              targetEntityTypeVersionId,
+            ),
+          )
+          .limit(1),
+      ).pipe(
+        Effect.catchAll((cause) =>
+          Effect.fail(
+            makeDbError("Failed to load target entity type version", cause),
+          ),
+        ),
+      );
+      const ver = verRows[0];
+      const displayCol =
+        ver?.display_col &&
+        (!allowedColumns ||
+          allowedColumns.size === 0 ||
+          allowedColumns.has(ver.display_col))
+          ? yield* resolveColumnSqlName(orgDb, entTable, ver.display_col)
+          : undefined;
+      const statusCol =
+        ver?.status_col &&
+        (!allowedColumns ||
+          allowedColumns.size === 0 ||
+          allowedColumns.has(ver.status_col))
+          ? yield* resolveColumnSqlName(orgDb, entTable, ver.status_col)
+          : undefined;
+
+      // Resolve projection columns
+      const extraCols: string[] = [];
+      if (projectColumns && projectColumns.size > 0) {
+        for (const col of projectColumns) {
+          if (
+            (ver?.display_col && col === ver.display_col) ||
+            (ver?.status_col && col === ver.status_col)
+          )
+            continue;
+          if (
+            !allowedColumns ||
+            allowedColumns.size === 0 ||
+            allowedColumns.has(col)
+          ) {
+            const phys = yield* resolveColumnSqlName(orgDb, entTable, col);
+            extraCols.push(phys);
+          }
+        }
+      } else if (allowedColumns && allowedColumns.size > 0) {
+        for (const col of allowedColumns) {
+          if (
+            (ver?.display_col && col === ver.display_col) ||
+            (ver?.status_col && col === ver.status_col)
+          )
+            continue;
+          const phys = yield* resolveColumnSqlName(orgDb, entTable, col);
+          extraCols.push(phys);
+        }
+      }
+      const jsonColumnsExpr =
+        extraCols.length > 0
+          ? sql.raw(
+              `jsonb_build_object(${extraCols
+                .map((c) => `'${c}', e.${c}`)
+                .join(", ")}) as columns`,
+            )
+          : undefined;
+
+      // Build WHERE conditions
+      const conds: Array<ReturnType<typeof sql>> = [];
+      for (const f of filters) {
+        const phys = yield* resolveColumnSqlName(orgDb, entTable, f.columnId);
+        if (f.op === "eq") {
+          conds.push(sql`${sql.raw(`e.${phys}`)} = ${f.value}`);
+        } else {
+          const pattern = `%${f.value}%`;
+          conds.push(sql`${sql.raw(`e.${phys}`)} ILIKE ${pattern}`);
+        }
+      }
+
+      const limit = page.pageSize;
+      const offset = page.pageNumber * page.pageSize;
+      const order = config.order ?? "asc";
+      const keyset = config.cursorEntityId;
+      const ksFrag = keyset
+        ? order === "asc"
+          ? sql`AND e.${sql.raw(META.ENTITY_ID)} > ${keyset}`
+          : sql`AND e.${sql.raw(META.ENTITY_ID)} < ${keyset}`
+        : sql``;
+
+      // Build SELECT
+      const selectList = [
+        sql`e.${sql.raw(META.ENTITY_ID)} as entity_id`,
+        displayCol ? sql`e.${sql.raw(displayCol)} as display_name` : undefined,
+        statusCol ? sql`e.${sql.raw(statusCol)} as status` : undefined,
+        jsonColumnsExpr,
+        sql`1 as __dummy__`,
+      ].filter(Boolean) as Array<ReturnType<typeof sql>>;
+
+      const rowsRes = yield* Effect.promise(() =>
+        orgDb.execute(
+          sql`SELECT ${sql.join(selectList, sql`, `)}
+                FROM ${sql.raw(entTable)} as e
+               WHERE e.${sql.raw(META.IS_DELETED)} = false
+                 ${conds.length > 0 ? sql`AND ${sql.join(conds, sql` AND `)}` : sql``}
+                 ${ksFrag}
+               ORDER BY e.${sql.raw(META.ENTITY_ID)} ${sql.raw(order === "asc" ? "ASC" : "DESC")}
+               LIMIT ${limit} OFFSET ${offset}`,
+        ),
+      ).pipe(
+        Effect.catchAll((cause) =>
+          Effect.fail(makeDbError("Org filtered query failed", cause)),
+        ),
+      );
+
+      const countRes = yield* Effect.promise(() =>
+        orgDb.execute(
+          sql`SELECT COUNT(*)::int as cnt
+                FROM ${sql.raw(entTable)} as e
+               WHERE e.${sql.raw(META.IS_DELETED)} = false
+                 ${conds.length > 0 ? sql`AND ${sql.join(conds, sql` AND `)}` : sql``}`,
+        ),
+      ).pipe(
+        Effect.catchAll((cause) =>
+          Effect.fail(makeDbError("Org filtered count failed", cause)),
+        ),
+      );
+
+      const RowSchema = S.Struct({
+        entity_id: S.String,
+        display_name: S.optional(S.String),
+        status: S.optional(S.String),
+        columns: S.optional(S.Record({ key: S.String, value: S.Unknown })),
+      });
+      const CountRow = S.Struct({ cnt: S.Union(S.Number, S.String) });
+      const ids = (yield* decodeRows(
+        rowsRes,
+        RowSchema,
+        "filtered",
+      )) as readonly {
+        readonly entity_id: string;
+        readonly display_name?: string | undefined;
+        readonly status?: string | undefined;
+        readonly columns?: Readonly<Record<string, unknown>> | undefined;
+      }[];
+      const decodedCount = (yield* decodeRows(
+        countRes,
+        CountRow,
+        "filtered-count",
+      )) as readonly { readonly cnt: number | string }[];
+      const firstCnt = decodedCount[0]?.cnt;
+      const total =
+        typeof firstCnt === "string" ? Number(firstCnt) : (firstCnt ?? 0);
+      const totalPages = total === 0 ? 0 : Math.ceil(total / page.pageSize);
+
+      yield* Effect.log(
+        `OrgEntityStore.findEntities org=${organizationId} entTable=${entTable} total=${total}`,
+      );
+
+      return {
+        entities:
+          config.countsOnly === true
+            ? []
+            : ids.map((r) => ({
+                entityId: r.entity_id,
+                ...(r.display_name ? { displayName: r.display_name } : {}),
+                ...(r.status ? { status: r.status } : {}),
+                ...(typeof r.columns !== "undefined"
+                  ? { columns: r.columns }
+                  : {}),
+              })),
+        totalNumberEntities: total,
+        totalNumberPages: totalPages,
+      } satisfies QueryEntitiesResult;
+    }).pipe(
+      Effect.withSpan("OrgEntityStore.findEntities", {
+        attributes: { orgId: organizationId, versionType, targetEntityTypeId },
+      }),
+    );
+
   return {
     queryByOneHopFilter,
     queryByMultiHopFilter,
     queryAllOfType,
     findByColumnEquals,
+    findEntities,
   };
 };
 

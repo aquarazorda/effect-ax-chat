@@ -7,7 +7,10 @@ import {
   drizzle as drizzleNeon,
   type NeonHttpDatabase,
 } from "drizzle-orm/neon-http";
-import { drizzle as drizzleNodePg, type NodePgDatabase } from "drizzle-orm/node-postgres";
+import {
+  drizzle as drizzleNodePg,
+  type NodePgDatabase,
+} from "drizzle-orm/node-postgres";
 import { Pool as PgPool } from "pg";
 import { neon } from "@neondatabase/serverless";
 import { dbSchema } from "./schema";
@@ -127,9 +130,10 @@ export const makeOrgDbResolverLayer: Layer.Layer<
 
           const url = decrypt(encrypted);
           try {
-            const raw = url.includes(".neon.tech") || url.includes("neon.tech/")
-              ? drizzleNeon(neon(url), { schema: dbSchema })
-              : makeNodePgDb(url);
+            const raw =
+              url.includes(".neon.tech") || url.includes("neon.tech/")
+                ? drizzleNeon(neon(url), { schema: dbSchema })
+                : makeNodePgDb(url);
             // Narrow to OrgDatabase shape; allowed to cast in connect glue per AGENTS.md
             const orgDb = raw as unknown as OrgDatabase;
             cache.set(organizationId, orgDb);

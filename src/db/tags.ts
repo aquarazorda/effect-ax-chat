@@ -32,12 +32,7 @@ export interface OrgDatabase {
 
 /** Per‑organization database resolver */
 export interface OrgDbResolver {
-  readonly get: (
-    organizationId: string,
-  ) => Effect.Effect<
-    OrgDatabase,
-    DbError
-  >;
+  readonly get: (organizationId: string) => Effect.Effect<OrgDatabase, DbError>;
 }
 
 export class OrgDbResolverTag extends Context.Tag("effect-ax/OrgDbResolver")<

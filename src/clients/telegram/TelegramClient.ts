@@ -219,6 +219,25 @@ export const makeTelegramClientLayer = (
       const send = (message: OutgoingMessage) =>
         Effect.tryPromise({
           try: async () => {
+            // Optional chat action (e.g., typing)
+            const meta = message.metadata ?? {};
+            const action =
+              (meta["telegramChatAction"] as string | undefined) ?? undefined;
+            const actionOnly = Boolean(meta["telegramChatActionOnly"]);
+            if (action) {
+              try {
+                await bot.telegram.sendChatAction(
+                  message.chatId,
+                  action as any,
+                );
+              } catch (error) {
+                // Non-fatal; proceed to message send
+              }
+              if (actionOnly) {
+                return undefined;
+              }
+            }
+
             const res = await bot.telegram.sendMessage(
               message.chatId,
               message.text,

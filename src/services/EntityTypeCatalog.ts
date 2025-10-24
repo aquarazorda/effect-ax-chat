@@ -6,7 +6,7 @@ import {
   makeDbError,
   type DbError,
 } from "../db/tags";
-import { and, desc, eq, or, sql } from "drizzle-orm";
+import { and, desc, eq, or, sql, inArray } from "drizzle-orm";
 import type {
   OrganizationId,
   EntityTypeId,
@@ -21,6 +21,7 @@ export interface CatalogEntityType {
   readonly name: string;
   readonly pluralName: string;
   readonly description?: string;
+  readonly columns?: ReadonlyArray<CatalogColumn>;
 }
 
 export interface CatalogColumn {
@@ -32,6 +33,7 @@ export interface EntityTypeCatalog {
   readonly listEntityTypes: (args: {
     organizationId: OrganizationId;
     versionType: "prod" | "dev";
+    columnsFilter?: { nameContains?: ReadonlyArray<string>; max?: number };
   }) => Effect.Effect<ReadonlyArray<CatalogEntityType>, DbError, BuilderDbTag>;
 
   readonly listColumns: (args: {
@@ -49,6 +51,7 @@ export const makeEntityTypeCatalog = (): EntityTypeCatalog => {
   const listEntityTypes: EntityTypeCatalog["listEntityTypes"] = ({
     organizationId,
     versionType,
+    columnsFilter,
   }) =>
     Effect.gen(function* () {
       const db: BuilderDatabase = yield* BuilderDbTag;
@@ -122,7 +125,7 @@ export const makeEntityTypeCatalog = (): EntityTypeCatalog => {
 
       // Deduplicate preferring system rows first (so system types appear at the top)
       const seen = new Set<string>();
-      const result: CatalogEntityType[] = [];
+      const base: CatalogEntityType[] = [];
       const pushRow = (r: {
         entity_type_id: unknown;
         entity_type_version_id: unknown;
@@ -133,7 +136,7 @@ export const makeEntityTypeCatalog = (): EntityTypeCatalog => {
         const key = S.decodeUnknownSync(S.String)(r.entity_type_id);
         if (seen.has(key)) return;
         seen.add(key);
-        result.push({
+        base.push({
           id: S.decodeUnknownSync(EntityTypeIdSchema)(r.entity_type_id),
           versionId: S.decodeUnknownSync(EntityTypeVersionIdSchema)(
             r.entity_type_version_id,
@@ -145,7 +148,61 @@ export const makeEntityTypeCatalog = (): EntityTypeCatalog => {
       };
       for (const r of systemRows) pushRow(r);
       for (const r of mappedRows) pushRow(r);
-      return result;
+      const baseRows: CatalogEntityType[] = base;
+
+      // Optionally attach columns for each type in a single batch query
+      const versionIds = baseRows.map((r) => r.versionId);
+      if (versionIds.length > 0) {
+        const etcol = dbSchema.data_model_entity_type_column;
+        const colRows = yield* Effect.promise(() =>
+          db
+            .select({
+              id: etcol.id,
+              name: etcol.name,
+              entity_type_version_id: etcol.entity_type_version_id,
+            })
+            .from(etcol)
+            .where(inArray(etcol.entity_type_version_id, versionIds as any)),
+        ).pipe(
+          Effect.catchAll((e) =>
+            Effect.fail(makeDbError("listEntityTypes column fetch failed", e)),
+          ),
+        );
+        const want = (n: string): boolean => {
+          if (!columnsFilter?.nameContains || columnsFilter.nameContains.length === 0) return true;
+          const lower = n.toLowerCase();
+          for (const frag of columnsFilter.nameContains) {
+            if (lower.includes(frag.toLowerCase())) return true;
+          }
+          return false;
+        };
+        const byVersionAll = new Map<string, CatalogColumn[]>();
+        const byVersionFiltered = new Map<string, CatalogColumn[]>();
+        for (const c of colRows) {
+          const key = S.decodeUnknownSync(EntityTypeVersionIdSchema)(
+            c.entity_type_version_id as unknown as string,
+          );
+          const recAll = byVersionAll.get(key) ?? [];
+          recAll.push({ id: c.id, name: c.name });
+          byVersionAll.set(key, recAll);
+          if (want(c.name)) {
+            const recF = byVersionFiltered.get(key) ?? [];
+            recF.push({ id: c.id, name: c.name });
+            byVersionFiltered.set(key, recF);
+          }
+        }
+        const out: CatalogEntityType[] = [];
+        for (const r of baseRows) {
+          const filtered = byVersionFiltered.get(r.versionId) ?? [];
+          const all = byVersionAll.get(r.versionId) ?? [];
+          const picked = filtered.length > 0 ? filtered : all;
+          const cap = columnsFilter?.max ?? picked.length;
+          const capped = picked.slice(0, Math.max(0, Math.min(cap, picked.length)));
+          out.push({ ...r, columns: capped });
+        }
+        return out;
+      }
+      return baseRows;
     }).pipe(
       Effect.catchAll((e) =>
         Effect.fail(makeDbError("listEntityTypes failed", e)),
