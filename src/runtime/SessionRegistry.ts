@@ -62,8 +62,14 @@ export const makeSessionRegistryLayer = <E>(
 
           const send = (m: typeof OutgoingMessageSchema.Type) =>
             client.send(m).pipe(
-              Effect.asVoid,
-              Effect.catchAll(() => Effect.succeed(true)),
+              Effect.annotateLogs({
+                component: "Session",
+                sessionKey: keyOf(key),
+                platform: key.platform,
+                userId: key.id,
+              }),
+              Effect.tapError((e) => Effect.logError("send error", e)),
+              Effect.catchAll(() => Effect.succeed<void>(undefined)),
               Effect.asVoid,
             );
 
@@ -71,7 +77,17 @@ export const makeSessionRegistryLayer = <E>(
           const handle = makeAgent(ctx);
 
           const loop = Effect.forever(
-            mailbox.take.pipe(Effect.flatMap(handle)),
+            mailbox.take.pipe(
+              Effect.annotateLogs({
+                component: "Session",
+                sessionKey: keyOf(key),
+                platform: key.platform,
+                userId: key.id,
+              }),
+              Effect.tap((m) => Effect.logInfo("handle", m.text)),
+              Effect.withLogSpan("session.handle"),
+              Effect.flatMap(handle),
+            ),
           );
 
           // Spawn daemon fiber within current environment
@@ -88,7 +104,17 @@ export const makeSessionRegistryLayer = <E>(
           const key = config.getUserKey(m);
           const s = yield* ensureSession(key);
           yield* s.mailbox.offer(m);
-        }).pipe(Effect.catchAll(() => Effect.succeed(undefined)));
+        }).pipe(
+          Effect.annotateLogs({
+            component: "SessionRegistry",
+            chatId: m.chatId,
+            senderId: m.senderId,
+            text: m.text,
+          }),
+          Effect.tap(() => Effect.logInfo("route")),
+          Effect.withLogSpan("session.route"),
+          Effect.catchAll(() => Effect.succeed(undefined)),
+        );
 
       return { route } satisfies SessionRegistry;
     }),

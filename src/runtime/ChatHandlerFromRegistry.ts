@@ -26,7 +26,16 @@ export const makeChatHandlerFromRegistryLayer: Layer.Layer<
           receivedAt: message.receivedAt,
           metadata: message.metadata,
         })
-        .pipe(Effect.asVoid);
+        .pipe(
+          Effect.annotateLogs({
+            component: "ChatHandler",
+            chatId: message.chatId,
+            senderId: message.senderId,
+          }),
+          Effect.tap(() => Effect.logInfo("routed")),
+          Effect.withLogSpan("handler.route"),
+          Effect.asVoid,
+        );
     return handler;
   }),
 );

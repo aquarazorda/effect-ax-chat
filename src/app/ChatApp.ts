@@ -38,9 +38,29 @@ export const makeChatApp = (
       const handler = options.handler ?? (yield* ChatHandlerTag);
 
       yield* Effect.acquireUseRelease(
-        client.connect,
-        () => Stream.runForEach(client.incoming, (message) => handler(message)),
-        () => client.disconnect,
+        client.connect.pipe(
+          Effect.annotateLogs({ component: "ChatApp" }),
+          Effect.tap(() => Effect.logInfo("chat client connect")),
+          Effect.withLogSpan("chat.connect"),
+        ),
+        () =>
+          Stream.runForEach(client.incoming, (message) =>
+            handler(message).pipe(
+              Effect.annotateLogs({
+                component: "ChatApp",
+                chatId: message.chatId,
+                senderId: message.senderId,
+              }),
+              Effect.tap(() => Effect.logInfo("handle message")),
+              Effect.withLogSpan("chat.handle"),
+            ),
+          ),
+        () =>
+          client.disconnect.pipe(
+            Effect.annotateLogs({ component: "ChatApp" }),
+            Effect.tap(() => Effect.logInfo("chat client disconnect")),
+            Effect.withLogSpan("chat.disconnect"),
+          ),
       );
     });
 
