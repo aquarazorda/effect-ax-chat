@@ -6,12 +6,20 @@ export const normalizeId = (id: string): string =>
 export const entityTableName = (
   versionType: string,
   entityTypeVersionId: string,
-): string => `entity_${versionType}_${normalizeId(entityTypeVersionId)}`;
+): string => {
+  // Builder version ids often carry a prefix like "etv_"; org tables omit it
+  const norm = normalizeId(entityTypeVersionId).replace(/^etv_/, "");
+  return `entity_${versionType}_${norm}`;
+};
 
 export const relationTableName = (
   versionType: string,
   relationVersionId: string,
-): string => `relation_${versionType}_${normalizeId(relationVersionId)}`;
+): string => {
+  // Relation version ids can be prefixed (e.g., "erv_"); org tables omit it
+  const norm = normalizeId(relationVersionId).replace(/^erv_/, "");
+  return `relation_${versionType}_${norm}`;
+};
 
 export const entityTypeSqlName = (entityTypeId: string): string =>
   `entity_${normalizeId(entityTypeId)}`;
@@ -21,8 +29,10 @@ export const relationColumnA = (entityTypeIdA: string): string =>
 export const relationColumnB = (entityTypeIdB: string): string =>
   `b_${entityTypeSqlName(entityTypeIdB)}`;
 
-export const columnSqlName = (columnId: string): string =>
-  `col_${normalizeId(columnId)}`;
+export const columnSqlName = (columnId: string): string => {
+  const norm = normalizeId(columnId);
+  return norm.startsWith("col_") ? norm : `col_${norm}`;
+};
 
 export const META = {
   ENTITY_ID: "__entity_id",

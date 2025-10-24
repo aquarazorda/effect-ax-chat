@@ -10,6 +10,7 @@
 - Stream responsibly: when exposing streaming outputs, wrap them in `Stream` utilities so downstream agents can backpressure, transform, or log incrementally.
 - Communicate deltas: summarize code or prompt changes succinctly in pull requests or handoffs, highlighting behavioral shifts, new dependencies, and validation steps.
 - Exercise test discipline: integrate effect-based property tests or replayable transcripts whenever behavior could regress silently.
+- Never skip tests: do not silence failures or convert them into passes. If a test fails, fix the underlying cause rather than short‑circuiting with early returns, try/catch swallowing, or console-only warnings. Tests must fail loudly and clearly when expectations are not met.
 - Close feature-sized tasks with a typecheck pass (`bun typecheck`) and resolve any surfaced issues before handoff.
 - Escalate anomalies: if production data, secrets, or policy conflicts surface, halt execution and request explicit human guidance before proceeding.
 - Prefer Effect Schema for runtime validation and type inference when shaping external data; re-evaluate existing code paths and adopt schemas where the added safety outweighs the overhead.
@@ -58,6 +59,20 @@ Known Exceptions
 
 - Avoid barrel files (index.ts that re-export entire folders). Import only what you need from concrete modules so tree‑shaking remains effective and bundle size stays minimal.
 - Place all imports at the top of the file. Do not add imports inside functions or mid‑file; prefer static ESM imports at module scope and keep side‑effect imports explicit.
+
+## Database Source of Truth
+
+- When in doubt about database behavior or naming, consult the sibling repo `../archetype` as the canonical source of truth. Mirror its:
+  - Schema naming (fully‑qualified builder schema tables),
+  - Version mapping semantics (how `builder.version_refs` is populated and joined),
+  - Org data table naming conventions (entity_/relation_ prefixes, version id normalization, column prefixes).
+- Prefer the same driver strategy as archetype in app/runtime code (node‑postgres via `drizzle-orm/node-postgres` for local/dev) and only localize unavoidable casts inside `src/db/connect.ts`.
+- Join patterns for builder metadata should reflect archetype’s approach:
+  - Resolve mapped versions via `version_refs` rows for the specific table, organization, and versionType.
+  - Use `workspace_version_*` joins for ordering/recency but don’t rely on `version_refs` with `workspace_version` table_name unless the data warrants it.
+- Keep org DB lookups resilient:
+  - Validate table existence (e.g., `to_regclass`) for prefixed/unprefixed names.
+  - Resolve column names by inspecting `pg_attribute` to avoid hard‑coding naming variants.
 
 ## Environment Configuration
 

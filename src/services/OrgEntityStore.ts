@@ -13,7 +13,7 @@ import type {
 import { OrgDbResolverTag, BuilderDbTag, makeDbError } from "../db/tags";
 import type { DbError, BuilderDatabase } from "../db/tags";
 import { dbSchema } from "../db/schema";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, or } from "drizzle-orm";
 import { sql } from "drizzle-orm";
 import * as S from "effect/Schema";
 import {
@@ -23,6 +23,7 @@ import {
   relationColumnB,
   columnSqlName,
   META,
+  normalizeId,
 } from "../orgdb/sqlNames";
 
 export interface OrgEntityStore {
@@ -122,7 +123,7 @@ export const makeOrgEntityStore = (): OrgEntityStore => {
   ) =>
     Effect.tryPromise({
       try: async () => {
-        // Join workspace_version + version_refs (for version_type) + workspace_version_entity_type_version + data_model_entity_type_version
+        // Resolve entity type version mapped for this org/versionType using workspace order
         const w = dbSchema.workspace_version;
         const vr = dbSchema.version_refs;
         const wvev = dbSchema.workspace_version_entity_type_version;
@@ -135,19 +136,33 @@ export const makeOrgEntityStore = (): OrgEntityStore => {
             version_patch: w.version_patch,
           })
           .from(w)
-          .leftJoin(
+          .innerJoin(wvev, eq(wvev.workspace_version_id, w.version_id))
+          .innerJoin(etv, eq(etv.version_id, wvev.entity_type_version_id))
+          .innerJoin(
             vr,
             and(
-              eq(vr.version_id, w.version_id),
-              and(
-                eq(vr.table_name, "workspace_version"),
-                and(
-                  eq(vr.organization_id, organizationId),
-                  eq(vr.version_type, versionType),
-                ),
+              eq(vr.version_id, etv.version_id),
+              or(
+                eq(vr.table_name, "builder.data_model_entity_type"),
+                eq(vr.table_name, "data_model_entity_type"),
               ),
+              eq(vr.organization_id, organizationId),
+              eq(vr.version_type, versionType),
             ),
           )
+          .where(eq(etv.id, entityTypeId))
+          .orderBy(
+            desc(w.version_major),
+            desc(w.version_minor),
+            desc(w.version_patch),
+          )
+          .limit(1);
+        const mapped = rows[0]?.entity_type_version_id;
+        if (mapped) return mapped;
+        // Fallback: latest workspace version for this entity type (system types, unmapped)
+        const fallback = await db
+          .select({ entity_type_version_id: wvev.entity_type_version_id })
+          .from(w)
           .innerJoin(wvev, eq(wvev.workspace_version_id, w.version_id))
           .innerJoin(etv, eq(etv.version_id, wvev.entity_type_version_id))
           .where(eq(etv.id, entityTypeId))
@@ -157,7 +172,7 @@ export const makeOrgEntityStore = (): OrgEntityStore => {
             desc(w.version_patch),
           )
           .limit(1);
-        return rows[0]?.entity_type_version_id;
+        return fallback[0]?.entity_type_version_id;
       },
       catch: (cause) =>
         makeDbError("Failed to resolve entity type version", cause),
@@ -183,19 +198,33 @@ export const makeOrgEntityStore = (): OrgEntityStore => {
             version_patch: w.version_patch,
           })
           .from(w)
-          .leftJoin(
+          .innerJoin(wvrv, eq(wvrv.workspace_version_id, w.version_id))
+          .innerJoin(drv, eq(drv.version_id, wvrv.relation_version_id))
+          .innerJoin(
             vr,
             and(
-              eq(vr.version_id, w.version_id),
-              and(
-                eq(vr.table_name, "workspace_version"),
-                and(
-                  eq(vr.organization_id, organizationId),
-                  eq(vr.version_type, versionType),
-                ),
+              eq(vr.version_id, wvrv.relation_version_id),
+              or(
+                eq(vr.table_name, "builder.data_model_entity_relation"),
+                eq(vr.table_name, "data_model_entity_relation"),
               ),
+              eq(vr.organization_id, organizationId),
+              eq(vr.version_type, versionType),
             ),
           )
+          .where(eq(drv.id, relationId))
+          .orderBy(
+            desc(w.version_major),
+            desc(w.version_minor),
+            desc(w.version_patch),
+          )
+          .limit(1);
+        const mapped = rows[0]?.relation_version_id;
+        if (mapped) return mapped;
+        // Fallback: latest workspace version for this relation (system relations, unmapped)
+        const fallback = await db
+          .select({ relation_version_id: wvrv.relation_version_id })
+          .from(w)
           .innerJoin(wvrv, eq(wvrv.workspace_version_id, w.version_id))
           .innerJoin(drv, eq(drv.version_id, wvrv.relation_version_id))
           .where(eq(drv.id, relationId))
@@ -205,10 +234,96 @@ export const makeOrgEntityStore = (): OrgEntityStore => {
             desc(w.version_patch),
           )
           .limit(1);
-        return rows[0]?.relation_version_id;
+        return fallback[0]?.relation_version_id;
       },
       catch: (cause) =>
         makeDbError("Failed to resolve relation version", cause),
+    });
+
+  const checkTableExists = (
+    orgDb: { execute: (q: unknown) => PromiseLike<unknown> },
+    tableName: string,
+  ): Effect.Effect<boolean, DbError> =>
+    Effect.gen(function* () {
+      const res = yield* Effect.promise(() =>
+        orgDb.execute(
+          sql.raw(`SELECT to_regclass('${tableName}') IS NOT NULL AS exists`),
+        ),
+      ).pipe(
+        Effect.catchAll((cause) =>
+          Effect.fail(makeDbError("Org table existence check failed", cause)),
+        ),
+      );
+      const Row = S.Struct({
+        exists: S.Union(S.Boolean, S.String, S.Number),
+      });
+      const rows = (yield* decodeRows(res, Row, "table-exists")) as readonly {
+        readonly exists: boolean | string | number;
+      }[];
+      const v = rows[0]?.exists;
+      return v === true || v === 1 || v === "1" || v === "t" || v === "true";
+    });
+
+  const resolveColumnSqlName = (
+    orgDb: { execute: (q: unknown) => PromiseLike<unknown> },
+    tableName: string,
+    columnId: string,
+  ): Effect.Effect<string, DbError> =>
+    Effect.gen(function* () {
+      const listRes = yield* Effect.promise(() =>
+        orgDb.execute(
+          sql.raw(
+            `SELECT attname as name
+               FROM pg_attribute
+               WHERE attrelid = '${tableName}'::regclass
+                 AND attnum > 0
+                 AND NOT attisdropped`,
+          ),
+        ),
+      ).pipe(
+        Effect.catchAll((cause) =>
+          Effect.fail(makeDbError("Org list columns for table failed", cause)),
+        ),
+      );
+      const Row = S.Struct({ name: S.String });
+      const rows = (yield* decodeRows(
+        listRes,
+        Row,
+        "table-columns",
+      )) as readonly {
+        readonly name: string;
+      }[];
+      const targetBase = normalizeId(columnId).replace(/^col_/, "");
+      const names = rows.map((r) => r.name);
+      // 1) exact match on col_<id>
+      const exact = names.find((n) => n === `col_${targetBase}`);
+      if (exact) return exact;
+      // 2) anchored suffix match on base id ( ..._<id> ) ignoring a single leading col_
+      const anchored = names.find((n) =>
+        n.replace(/^col_/, "").endsWith(`_${targetBase}`),
+      );
+      if (anchored) return anchored;
+      // 3) conservative fallback: default naming for the id
+      return columnSqlName(columnId);
+    });
+
+  const resolveEntityTableName = (
+    orgDb: { execute: (q: unknown) => PromiseLike<unknown> },
+    versionType: string,
+    entityTypeVersionId: string,
+  ): Effect.Effect<string | undefined, DbError> =>
+    Effect.gen(function* () {
+      const norm = entityTypeVersionId.replace(/-/g, "_").toLowerCase();
+      const noPrefix = norm.replace(/^etv_/, "");
+      const candidates = [
+        `entity_${versionType}_${noPrefix}`,
+        `entity_${versionType}_${norm}`,
+      ];
+      for (const name of candidates) {
+        const ok = yield* checkTableExists(orgDb, name);
+        if (ok) return name;
+      }
+      return undefined;
     });
 
   const queryByOneHopFilter: OrgEntityStore["queryByOneHopFilter"] = ({
@@ -420,7 +535,11 @@ export const makeOrgEntityStore = (): OrgEntityStore => {
         columns: S.optional(S.Record({ key: S.String, value: S.Unknown })),
       });
       const CountRow = S.Struct({ cnt: S.Union(S.Number, S.String) });
-      const ids = (yield* decodeRows(rowsRes, RowSchema, "one-hop")) as readonly {
+      const ids = (yield* decodeRows(
+        rowsRes,
+        RowSchema,
+        "one-hop",
+      )) as readonly {
         readonly entity_id: string;
         readonly display_name?: string | undefined;
         readonly status?: string | undefined;
@@ -691,7 +810,11 @@ WHERE s.depth = ${stepVersions.length}`;
         columns: S.optional(S.Record({ key: S.String, value: S.Unknown })),
       });
       const CountRow = S.Struct({ cnt: S.Union(S.Number, S.String) });
-      const ids = (yield* decodeRows(rowsRes, RowSchema, "multi-hop")) as readonly {
+      const ids = (yield* decodeRows(
+        rowsRes,
+        RowSchema,
+        "multi-hop",
+      )) as readonly {
         readonly entity_id: string;
         readonly display_name?: string | undefined;
         readonly status?: string | undefined;
@@ -786,25 +909,35 @@ WHERE s.depth = ${stepVersions.length}`;
         } as const;
       }
 
-      const entTable = entityTableName(versionType, ver.version_id);
-      const displayColRaw = ver.display_col
-        ? columnSqlName(ver.display_col)
+      const resolver = yield* OrgDbResolverTag;
+      const orgDb = yield* resolver.get(organizationId);
+      const entTable = yield* resolveEntityTableName(
+        orgDb,
+        versionType,
+        ver.version_id,
+      );
+      if (!entTable) {
+        return {
+          entities: [],
+          totalNumberEntities: 0,
+          totalNumberPages: 0,
+        } as const;
+      }
+      const resolvedDisplay = ver.display_col
+        ? yield* resolveColumnSqlName(orgDb, entTable, ver.display_col)
         : undefined;
-      const statusColRaw = ver.status_col
-        ? columnSqlName(ver.status_col)
+      const resolvedStatus = ver.status_col
+        ? yield* resolveColumnSqlName(orgDb, entTable, ver.status_col)
         : undefined;
       const displayCol =
-        allowedColumns &&
-        ver.display_col &&
-        !allowedColumns.has(ver.display_col)
+        allowedColumns && ver.display_col && !allowedColumns.has(ver.display_col)
           ? undefined
-          : displayColRaw;
+          : resolvedDisplay;
       const statusCol =
         allowedColumns && ver.status_col && !allowedColumns.has(ver.status_col)
           ? undefined
-          : statusColRaw;
-      const resolver = yield* OrgDbResolverTag;
-      const orgDb = yield* resolver.get(organizationId);
+          : resolvedStatus;
+      // resolver/orgDb already resolved above
 
       const limit = page.pageSize;
       const offset = page.pageNumber * page.pageSize;
@@ -818,13 +951,14 @@ WHERE s.depth = ${stepVersions.length}`;
             (ver.status_col && col === ver.status_col)
           )
             continue;
-          extraCols.push(col);
+          const phys = yield* resolveColumnSqlName(orgDb, entTable, col);
+          extraCols.push(phys);
         }
       }
       const jsonColumnsExpr =
         extraCols.length > 0
           ? `jsonb_build_object(${extraCols
-              .map((c) => `'${c}', e.${columnSqlName(c)}`)
+              .map((c) => `'${c}', e.${c}`)
               .join(", ")}) as columns,`
           : "";
       const ks3 = keyset ? safeLiteral(keyset) : undefined;
@@ -891,7 +1025,11 @@ WHERE s.depth = ${stepVersions.length}`;
         columns: S.optional(S.Record({ key: S.String, value: S.Unknown })),
       });
       const CountRow2 = S.Struct({ cnt: S.Union(S.Number, S.String) });
-      const ids = (yield* decodeRows(rowsRes, RowSchema2, "all-of-type")) as readonly {
+      const ids = (yield* decodeRows(
+        rowsRes,
+        RowSchema2,
+        "all-of-type",
+      )) as readonly {
         readonly entity_id: string;
         readonly display_name?: string | undefined;
         readonly status?: string | undefined;
@@ -952,15 +1090,28 @@ WHERE s.depth = ${stepVersions.length}`;
       );
       if (!targetEntityTypeVersionId) return undefined;
 
-      const entTable = entityTableName(versionType, targetEntityTypeVersionId);
-      const col = columnSqlName(columnId);
       const resolver = yield* OrgDbResolverTag;
       const orgDb = yield* resolver.get(organizationId);
+      const entTable = yield* resolveEntityTableName(
+        orgDb,
+        versionType,
+        targetEntityTypeVersionId,
+      );
+      if (!entTable) return undefined;
+      yield* Effect.logDebug(`findByColumnEquals entity table=${entTable}`);
+      const col = yield* resolveColumnSqlName(orgDb, entTable, columnId);
+      yield* Effect.logDebug(`findByColumnEquals column=${col}`);
       const safeVal = safePhoneLiteral(value);
       if (!safeVal) return undefined;
+      const candidates: string[] = [];
+      candidates.push(safeVal);
+      if (!safeVal.startsWith("+") && safeLiteral(`+${safeVal}`)) {
+        candidates.push(`+${safeVal}`);
+      }
+      const inList = candidates.map((v) => `'${v}'`).join(", ");
       const q = `SELECT e.${META.ENTITY_ID} as entity_id
                  FROM ${entTable} as e
-                 WHERE e.${col} = '${safeVal}' AND e.${META.IS_DELETED} = false
+                 WHERE e.${col} IN (${inList}) AND e.${META.IS_DELETED} = false
                  LIMIT 1`;
       const res = yield* Effect.promise(() => orgDb.execute(sql.raw(q))).pipe(
         Effect.catchAll((cause) =>

@@ -152,6 +152,12 @@ export const makeMaxAgent: AgentFactory<
               ),
             ),
           );
+          yield* Effect.annotateLogs({
+            component: "MaxAgent",
+            agent: AGENT_NAME,
+            chatId: m.chatId,
+            senderId: m.senderId,
+          })(Effect.logDebug(`types.count=${types.length}`));
           // Prefer explicit env override; else heuristic match on name
           const preferId = env.DEMO_PEOPLE_ENTITY_TYPE_ID;
           const pickPeople = () => {
@@ -177,6 +183,12 @@ export const makeMaxAgent: AgentFactory<
           };
           const people = pickPeople();
           if (people) {
+            yield* Effect.annotateLogs({
+              component: "MaxAgent",
+              agent: AGENT_NAME,
+              chatId: m.chatId,
+              senderId: m.senderId,
+            })(Effect.logDebug(`people.id=${people.id} name=${people.name}`));
             const cols = yield* Effect.promise(() =>
               Runtime.runPromise(
                 runtime,
@@ -193,6 +205,12 @@ export const makeMaxAgent: AgentFactory<
                 ),
               ),
             );
+            yield* Effect.annotateLogs({
+              component: "MaxAgent",
+              agent: AGENT_NAME,
+              chatId: m.chatId,
+              senderId: m.senderId,
+            })(Effect.logDebug(`people.columns.count=${cols.length}`));
             const phoneColId = env.DEMO_PHONE_COLUMN_ID
               ? env.DEMO_PHONE_COLUMN_ID
               : (() => {
@@ -214,6 +232,21 @@ export const makeMaxAgent: AgentFactory<
                   }
                   return best?.id;
                 })();
+            if (phoneColId) {
+              yield* Effect.annotateLogs({
+                component: "MaxAgent",
+                agent: AGENT_NAME,
+                chatId: m.chatId,
+                senderId: m.senderId,
+              })(Effect.logDebug(`phone.columnId=${phoneColId}`));
+            } else {
+              yield* Effect.annotateLogs({
+                component: "MaxAgent",
+                agent: AGENT_NAME,
+                chatId: m.chatId,
+                senderId: m.senderId,
+              })(Effect.logDebug("phone.columnId not found"));
+            }
             if (phoneColId) {
               const found = yield* Effect.promise(() =>
                 Runtime.runPromise(
