@@ -14,4 +14,3 @@ export const UserKeySchema = S.Struct({
 });
 
 export type UserKey = typeof UserKeySchema.Type;
-

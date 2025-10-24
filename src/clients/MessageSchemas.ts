@@ -16,4 +16,3 @@ export const OutgoingMessageSchema = S.Struct({
   metadata: S.optional(S.Record({ key: S.String, value: S.Unknown })),
 });
 export type OutgoingMessage = typeof OutgoingMessageSchema.Type;
-

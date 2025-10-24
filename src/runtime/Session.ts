@@ -1,6 +1,9 @@
 import { Effect } from "effect";
 import * as S from "effect/Schema";
-import { IncomingMessageSchema, OutgoingMessageSchema } from "../clients/MessageSchemas";
+import {
+  IncomingMessageSchema,
+  OutgoingMessageSchema,
+} from "../clients/MessageSchemas";
 import { UserKeySchema } from "./UserKey";
 import type { Mailbox, MailboxPolicy } from "./Mailbox";
 

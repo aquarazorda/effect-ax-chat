@@ -46,7 +46,7 @@ export const makeInMemoryMailboxFactoryLayer: Layer.Layer<MailboxFactoryTag> =
 
 const makeQueue = <A>(policy: MailboxPolicy) =>
   policy.strategy === "unbounded"
-    ? (Queue.unbounded<A>())
+    ? Queue.unbounded<A>()
     : policy.strategy === "bounded"
       ? Queue.bounded<A>(policy.capacity)
       : policy.strategy === "sliding"

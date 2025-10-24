@@ -11,3 +11,5 @@ export * from "./runtime/Mailbox";
 export * from "./runtime/Session";
 export * from "./runtime/SessionIndex";
 export * from "./runtime/SessionRegistry";
+export * from "./runtime/ChatHandlerFromRegistry";
+export * from "./app/agents/EchoAgent";

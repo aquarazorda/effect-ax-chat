@@ -15,18 +15,20 @@ export class SessionIndexTag extends Context.Tag("effect-ax/SessionIndex")<
 export const makeInMemorySessionIndexLayer: Layer.Layer<SessionIndexTag> =
   Layer.effect(
     SessionIndexTag,
-    Effect.succeed((() => {
-      const map = new Map<string, Session>();
-      const get: SessionIndex<Session>["get"] = (k) =>
-        Effect.sync(() => map.get(k));
-      const set: SessionIndex<Session>["set"] = (k, v) =>
-        Effect.sync(() => {
-          map.set(k, v);
-        });
-      const del: SessionIndex<Session>["delete"] = (k) =>
-        Effect.sync(() => {
-          map.delete(k);
-        });
-      return { get, set, delete: del } satisfies SessionIndex<Session>;
-    })()),
+    Effect.succeed(
+      (() => {
+        const map = new Map<string, Session>();
+        const get: SessionIndex<Session>["get"] = (k) =>
+          Effect.sync(() => map.get(k));
+        const set: SessionIndex<Session>["set"] = (k, v) =>
+          Effect.sync(() => {
+            map.set(k, v);
+          });
+        const del: SessionIndex<Session>["delete"] = (k) =>
+          Effect.sync(() => {
+            map.delete(k);
+          });
+        return { get, set, delete: del } satisfies SessionIndex<Session>;
+      })(),
+    ),
   );
