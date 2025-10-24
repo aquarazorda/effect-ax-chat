@@ -17,6 +17,32 @@
 - Keep memory/persistence pluggable via Tag/Layer DI (e.g., mailbox factories, session indexes); avoid global singletons or hard-wired in-memory maps.
 - Bias toward simple, readable implementations that avoid duplication and favor performance where it matters—clarity first, DRY second, efficiency third.
 
+## Permissions Architecture (Shared Context)
+
+- All reads/mutations involving entity types, entities, actions must go through typed services with DI, never raw DB handles from app/agent code.
+- Builder DB (metadata):
+  - AuthorizationServiceTag: loads grouped relation‑path authorizations (read, per‑field‑group, action execute, activity log) from `builder.data_model_authorization`.
+  - EntityTypeServiceTag, ActionServiceTag: fetch entity types/actions along with their authorizations, using Drizzle + Effect Schema decoding.
+- Permission planning (enforcement):
+  - PermissionEngineTag: produces plans for entity read and action execution.
+    - EntityReadPlan includes mode (`denyAll` | `filter` | `allowAll`), field‑group policy, relation traversal steps, and subject anchor (user entity id).
+    - Deny‑by‑default on errors. “Anyone‑with‑link” scopes are only granted when a `LinkTokenVerifierTag` validates the token.
+- Org data (customer DB):
+  - OrgDbResolverTag: resolves per‑org Drizzle connections; no raw access in app code.
+  - OrgEntityStoreTag: executes authorized queries based on a filter plan. Supports allowAll, one‑hop and multi‑hop traversal (fixed‑length chained CTEs) with workspace‑bound version mapping. Column projection is pushed down for display/status based on granted field‑groups.
+- Query endpoint:
+  - EntityQueryServiceTag: the only entry point for fetching entities. It consumes PermissionEngine, derives a (currently) one‑hop filter, and delegates to OrgEntityStore. No “get all” escape hatches.
+
+Notes
+
+- Avoid `as`/non‑null assertions. Use Effect Schema decoding for branded ids (e.g., `S.decodeUnknownSync(FieldGroupIdSchema)`), Option/Either for control flow, and typed constructors.
+- Streaming results should be wrapped with `Stream` when added, to support backpressure and incremental processing.
+- Workspace version mapping (via `workspace_version_*` + `version_refs`) replaces latest‑by‑created_at for entity and relation versions.
+
+Known Exceptions
+
+- `src/db/connect.ts` uses narrow `as any` casts for driver‑specific Drizzle transaction/execute health checks due to upstream type surface. Keep these localized and do not propagate casts into service layers.
+
 ## Bun Workflow Standards
 
 - Default to Bun for execution, bundling, installs, tests, and scripting (e.g. `bun <file>`, `bun run <script>`, `bun test`, `bun install`, `bun build <entry>`); avoid Node, npm, yarn, pnpm, ts-node, webpack, or esbuild equivalents.

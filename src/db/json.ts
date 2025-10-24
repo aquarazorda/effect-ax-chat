@@ -9,7 +9,7 @@ export type Json =
   | ReadonlyArray<Json>
   | { readonly [k: string]: Json };
 
-export const JsonSchema: S.Schema<any, any, never> = S.suspend(() =>
+export const JsonSchema: S.Schema<Json, Json, never> = S.suspend(() =>
   S.Union(
     S.Null,
     S.Boolean,
